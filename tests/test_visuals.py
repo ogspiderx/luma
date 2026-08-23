@@ -42,7 +42,7 @@ def check(label, condition, detail=""):
 
 async def test_spinner_only_while_busy():
     print("\n[1. spinner - only while preparing]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         screen = app.screen
         spinner = screen.query_one("#busy", LoadingIndicator)
@@ -63,7 +63,7 @@ async def test_spinner_only_while_busy():
 
 async def test_progress_bar_glides():
     print("\n[2. progress bar - glides rather than jumps]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         holder = app.screen.query_one("#downloads")
         row = DownloadRow("1/1", "Test video")
@@ -99,7 +99,7 @@ async def test_progress_bar_glides():
 
 async def test_completion_highlight_is_one_shot():
     print("\n[3. completion highlight - one shot, then settles]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         holder = app.screen.query_one("#downloads")
         row = DownloadRow("1/1", "Test video")
@@ -144,7 +144,7 @@ def count_running_animations(app):
 
 async def test_idle_screens_are_still():
     print("\n[nothing else moves]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         await asyncio.sleep(0.3)
         check("main screen is still when idle",
@@ -186,7 +186,7 @@ async def test_layout_holds_in_both_themes():
             from luma.config import save_config
             save_config({"theme": theme, "output_dir": td}, cfg)
 
-            app = LumaApp(config_path=cfg)
+            app = LumaApp(config_path=cfg, auto_prepare=False)
             async with app.run_test() as pilot:
                 await pilot.pause()
                 check(f"{theme}: applied", app.theme == theme, str(app.theme))
@@ -217,7 +217,7 @@ async def test_rows_stack_compactly():
     download fill the pane and pushes every other one out of sight.
     """
     print("\n[rows stack compactly]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test(size=(84, 34)) as pilot:
         holder = app.screen.query_one("#downloads")
         rows = []
@@ -246,7 +246,7 @@ async def test_feedback_is_actually_on_screen():
     text is not enough, since a hidden widget still holds its text.
     """
     print("\n[feedback is really visible]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test(size=(88, 26)) as pilot:
         screen = app.screen
         screen._set_plan("Your speed: 5.6 Mbps   Videos at once: 1")

@@ -61,14 +61,23 @@ class MainScreen(Screen):
             yield VerticalScroll(id="downloads")
             with Horizontal(id="status-row"):
                 yield LoadingIndicator(id="busy")
-                yield Static("Ready.", id="status-line")
+                yield Static("Getting ready...", id="status-line")
+                yield Button("Stop", variant="error", id="stop-btn")
                 yield Button("Clear done", id="clear-btn")
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#busy", LoadingIndicator).display = False
+        self.query_one("#stop-btn", Button).display = False
         self.query_one("#clear-btn", Button).display = False
         self.query_one("#url-input", Input).focus()
+        # Tools, the update check and the speed reading are all done once,
+        # here, rather than in front of every download.
+        if getattr(self.app, "auto_prepare", True):
+            self._set_busy(True)
+            self._prepare_worker()
+        else:
+            self._set_busy(False)
+            self._set_status("Ready.")
 
     def _set_busy(self, busy):
         """Show or hide the spinner. Nothing animates when idle."""
@@ -95,6 +104,8 @@ class MainScreen(Screen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "download-btn":
             self._start()
+        elif event.button.id == "stop-btn":
+            self.action_stop_downloads()
         elif event.button.id == "clear-btn":
             self.action_clear_finished()
 
@@ -127,7 +138,7 @@ class MainScreen(Screen):
                 row.remove()
                 del self._rows[tag]
                 removed += 1
-        self._refresh_clear_button()
+        self._refresh_buttons()
         if removed:
             self.app.notify(
                 f"Cleared {removed} finished "
@@ -137,9 +148,54 @@ class MainScreen(Screen):
             self.app.notify("Nothing finished to clear yet.",
                             severity="warning")
 
-    def _refresh_clear_button(self):
+    def _refresh_buttons(self):
+        """Stop is offered while running; Clear only when there is idle work."""
         finished = any(row.finished for row in self._rows.values())
-        self.query_one("#clear-btn", Button).display = bool(finished)
+        self.query_one("#stop-btn", Button).display = self._download_active
+        self.query_one("#clear-btn", Button).display = (
+            bool(finished) and not self._download_active
+        )
+
+    # -- one-time preparation --------------------------------------------
+    @work(thread=True, exclusive=True, group="prepare")
+    def _prepare_worker(self) -> None:
+        """Set up the tools and read the connection speed, once at startup."""
+        app = self.app
+
+        def ui(fn, *args):
+            try:
+                app.call_from_thread(fn, *args)
+            except Exception:
+                pass
+
+        callbacks = EngineCallbacks(
+            on_status=lambda m: ui(self._set_status, m),
+            on_tool_progress=lambda desc, got, total: ui(
+                self._set_status,
+                f"Getting things ready - {desc} "
+                f"({got * 100 // total if total else 0}%)",
+            ),
+        )
+        try:
+            app.tools = ensure_tools(callbacks)
+        except LumaError as exc:
+            ui(self._set_status, exc.user_message)
+            ui(self._set_busy, False)
+            return
+        except Exception:                              # noqa: BLE001
+            ui(self._set_status, "Could not get things ready.")
+            ui(self._set_busy, False)
+            return
+
+        config = getattr(app, "config", None) or {}
+        if not config.get("skip_speedtest", False):
+            try:
+                app.bandwidth = measure_bandwidth(callbacks)
+            except Exception:                          # noqa: BLE001
+                app.bandwidth = None
+
+        ui(self._set_busy, False)
+        ui(self._set_status, "Ready.")
 
     # -- starting a download ---------------------------------------------
     def _known_links(self):
@@ -174,6 +230,7 @@ class MainScreen(Screen):
         box.value = ""
         self._download_active = True
         self.query_one("#download-btn", Button).disabled = True
+        self._refresh_buttons()      # Stop becomes available straight away
         self._set_busy(True)
         dl.reset_cancel()
         self._start_speed_readout()
@@ -274,14 +331,14 @@ class MainScreen(Screen):
         row = self._rows.get(tag)
         if row is not None:
             row.finish(ok, message)
-        self._refresh_clear_button()
+        self._refresh_buttons()
 
     def _finished(self, ok_count, fail_count, output_dir):
         self._download_active = False
         self._stop_speed_readout()
         self._set_busy(False)
         self.query_one("#download-btn", Button).disabled = False
-        self._refresh_clear_button()
+        self._refresh_buttons()
         if fail_count and not ok_count:
             self._set_status("Nothing downloaded. See the messages above.")
         elif fail_count:
@@ -324,8 +381,13 @@ class MainScreen(Screen):
         )
 
         try:
-            ui(self._set_status, "Getting things ready...")
-            tools = ensure_tools(callbacks)
+            # Prepared once at startup; only fall back if that had not
+            # finished yet or did not succeed.
+            tools = getattr(app, "tools", None)
+            if not tools:
+                ui(self._set_status, "Getting things ready...")
+                tools = ensure_tools(callbacks)
+                app.tools = tools
 
             ui(self._set_status, "Checking the link...")
             videos = expand_playlists(tools["yt-dlp"], urls, callbacks)
@@ -344,8 +406,11 @@ class MainScreen(Screen):
                 tags.append(tag)
                 ui(self._add_row, tag, url)
 
-            if cfg["run_speedtest"]:
-                single, line, rtt = measure_bandwidth(callbacks)
+            # The connection was read once at startup; reuse that rather than
+            # spending seconds on it before every download.
+            reading = getattr(app, "bandwidth", None)
+            if cfg["run_speedtest"] and reading:
+                single, line, rtt = reading
                 plan = compute_plan(single, line, rtt, total,
                                     cfg["max_parallel"])
             else:

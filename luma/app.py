@@ -22,11 +22,17 @@ class LumaApp(App):
     ]
 
     def __init__(self, config_path=None, history_path=None, errors_path=None,
-                 **kwargs):
+                 auto_prepare=True, **kwargs):
         super().__init__(**kwargs)
         self._config_path = config_path
         self._history_path = history_path
         self._errors_path = errors_path
+        #: Whether to set up the tools and read the connection on startup.
+        #: Turned off by tests, which supply their own stand-ins.
+        self.auto_prepare = auto_prepare
+        #: Filled in once by the startup preparation, then reused.
+        self.tools = None
+        self.bandwidth = None
         self.config = {}
 
     def on_mount(self) -> None:

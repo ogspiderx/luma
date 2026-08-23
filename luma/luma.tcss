@@ -70,6 +70,20 @@ Screen {
     width: 1fr;
 }
 
+/* Offered only while something is actually downloading. */
+#stop-btn {
+    min-width: 8;
+    height: 1;
+    border: none;
+    background: $error 40%;
+    color: $foreground;
+    margin-right: 1;
+}
+
+#stop-btn:hover {
+    background: $error;
+}
+
 /* Only offered once there is something finished to clear. */
 #clear-btn {
     min-width: 13;

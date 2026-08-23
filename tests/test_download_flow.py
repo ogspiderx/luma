@@ -129,7 +129,7 @@ async def test_single_download():
         os.environ["LUMA_FAKE_MODE"] = "ok"
         os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake Video [dQw4w9WgXcQ].mp4")
 
-        app = LumaApp()
+        app = LumaApp(auto_prepare=False)
         async with app.run_test() as pilot:
             screen = app.screen
             screen._settings = lambda: {
@@ -183,8 +183,8 @@ async def test_single_download():
             row = screen.query(DownloadRow)[0]
             check("row marked as done", row.has_class("-done"))
             detail = text_of(row.query_one(".row-detail", Static))
-            check("row shows the saved file name",
-                  "Fake Video" in detail, detail)
+            check("a finished row shows its link, ready to copy",
+                  detail == "https://youtu.be/abc", detail)
 
             plan = text_of(screen.query_one("#plan-panel", Static))
             check("plan panel explains the setup in plain words",
@@ -202,7 +202,7 @@ async def test_multiple_downloads():
         os.environ["LUMA_FAKE_MODE"] = "ok"
         os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake [CdbHAzNB1n0].mp4")
 
-        app = LumaApp()
+        app = LumaApp(auto_prepare=False)
         async with app.run_test() as pilot:
             screen = app.screen
             screen._settings = lambda: {
@@ -236,7 +236,7 @@ async def test_failure_is_explained():
         os.environ["LUMA_FAKE_MODE"] = "fail"
         os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake [CdbHAzNB1n0].mp4")
 
-        app = LumaApp()
+        app = LumaApp(auto_prepare=False)
         async with app.run_test() as pilot:
             screen = app.screen
             screen._settings = lambda: {
@@ -265,7 +265,7 @@ async def test_failure_is_explained():
 
 async def test_bad_link_rejected():
     print("\n[bad links]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         screen = app.screen
         screen.query_one("#url-input", Input).value = "file:///etc/passwd"
@@ -299,7 +299,7 @@ async def test_results_are_recorded():
         os.environ["LUMA_FAKE_MODE"] = "ok"
         os.environ["LUMA_FAKE_OUT"] = target
 
-        app = LumaApp()
+        app = LumaApp(auto_prepare=False)
         async with app.run_test() as pilot:
             screen = app.screen
             screen._settings = lambda: {
@@ -326,7 +326,7 @@ async def test_results_are_recorded():
 
         # Now a failing run, which must land in the other file only.
         os.environ["LUMA_FAKE_MODE"] = "fail"
-        app = LumaApp()
+        app = LumaApp(auto_prepare=False)
         async with app.run_test() as pilot:
             screen = app.screen
             screen._settings = lambda: {

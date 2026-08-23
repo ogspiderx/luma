@@ -33,7 +33,7 @@ def check(label, condition, detail=""):
 
 async def test_boots_and_shows_chrome():
     print("\n[app boots]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         check("main screen is on top",
               isinstance(app.screen, MainScreen), type(app.screen).__name__)
@@ -49,7 +49,7 @@ async def test_boots_and_shows_chrome():
 
 async def test_settings_opens_and_closes():
     print("\n[settings screen]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         depth = len(app.screen_stack)
         await pilot.press("ctrl+s")
@@ -67,7 +67,7 @@ async def test_settings_opens_and_closes():
 
 async def test_settings_back_button():
     print("\n[leaving settings by button]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         await pilot.press("ctrl+s")
         await pilot.pause()
@@ -79,7 +79,7 @@ async def test_settings_back_button():
 
 async def test_history_opens_and_closes():
     print("\n[history screen]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         await pilot.press("ctrl+h")
         await pilot.pause()
@@ -93,7 +93,7 @@ async def test_history_opens_and_closes():
 
 async def test_typing_a_link():
     print("\n[typing]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         box = app.screen.query_one("#url-input", Input)
         box.focus()

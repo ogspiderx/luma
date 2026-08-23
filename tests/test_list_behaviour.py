@@ -72,7 +72,7 @@ def test_title_read_from_filename():
 
 async def test_row_shows_title_once_known():
     print("\n[1b. the row swaps the link for the title]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         holder = app.screen.query_one("#downloads", VerticalScroll)
         url = "https://youtu.be/Qwm6BSGrOq0?list=RDQwm6BSGrOq0"
@@ -101,7 +101,7 @@ async def test_row_shows_title_once_known():
 async def test_duplicate_warnings():
     print("\n[2. duplicates are pointed out]")
     with tempfile.TemporaryDirectory() as td:
-        app = LumaApp(config_path=os.path.join(td, "config.json"))
+        app = LumaApp(config_path=os.path.join(td, "config.json"), auto_prepare=False)
         async with app.run_test() as pilot:
             screen = app.screen
 
@@ -140,7 +140,7 @@ async def test_duplicate_warnings():
 async def test_duplicate_paste_does_not_start_a_download():
     print("\n[2b. pasting an already-listed link starts nothing]")
     with tempfile.TemporaryDirectory() as td:
-        app = LumaApp(config_path=os.path.join(td, "config.json"))
+        app = LumaApp(config_path=os.path.join(td, "config.json"), auto_prepare=False)
         async with app.run_test() as pilot:
             screen = app.screen
             holder = screen.query_one("#downloads", VerticalScroll)
@@ -167,7 +167,7 @@ async def test_duplicate_paste_does_not_start_a_download():
 
 async def test_clear_finished():
     print("\n[3. finished downloads can be cleared away]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         screen = app.screen
         holder = screen.query_one("#downloads", VerticalScroll)
@@ -185,7 +185,7 @@ async def test_clear_finished():
                 row.finish(True, "Saved.")
             elif state == "failed":
                 row.finish(False, "This video is private.")
-        screen._refresh_clear_button()
+        screen._refresh_buttons()
         await pilot.pause()
 
         check("the clear button appears once something has finished",
@@ -214,7 +214,7 @@ async def test_clear_finished():
 
 async def test_clear_by_keyboard_and_button():
     print("\n[3b. clearing works by key and by button]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         screen = app.screen
         holder = screen.query_one("#downloads", VerticalScroll)
@@ -223,7 +223,7 @@ async def test_clear_by_keyboard_and_button():
         screen._rows["1"] = row
         await pilot.pause()
         row.finish(True, "Saved.")
-        screen._refresh_clear_button()
+        screen._refresh_buttons()
         await pilot.pause()
 
         await pilot.press("ctrl+l")
@@ -236,7 +236,7 @@ async def test_clear_by_keyboard_and_button():
         screen._rows["2"] = row
         await pilot.pause()
         row.finish(True, "Saved.")
-        screen._refresh_clear_button()
+        screen._refresh_buttons()
         await pilot.pause()
         await pilot.click("#clear-btn")
         await pilot.pause()
@@ -250,7 +250,7 @@ async def test_clear_by_keyboard_and_button():
 
 async def test_long_list_scrolls():
     print("\n[4. a long list can be scrolled]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test(size=(84, 24)) as pilot:
         screen = app.screen
         holder = screen.query_one("#downloads", VerticalScroll)
@@ -315,7 +315,7 @@ def test_rate_parsing_for_the_total():
 
 async def test_overall_speed_comes_from_real_downloads():
     print("\n[5c. the overall figure is measured, not guessed]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         screen = app.screen
         holder = screen.query_one("#downloads", VerticalScroll)

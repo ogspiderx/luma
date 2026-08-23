@@ -162,10 +162,23 @@ def ensure_tools(callbacks=None):
     return tools
 
 
+#: The update check is worth doing when Luma starts, not before every
+#: download -- it costs seconds and the answer cannot change in between.
+_update_checked = False
+
+
+def reset_update_state():
+    """Forget that the update check has run (used by the tests)."""
+    global _update_checked
+    _update_checked = False
+
+
 def _maybe_update_ytdlp(path, local_managed, callbacks):
-    """Best-effort self-update of the yt-dlp we manage (portable exe)."""
-    if not local_managed:
+    """Best-effort self-update of the yt-dlp we manage, once per session."""
+    global _update_checked
+    if not local_managed or _update_checked:
         return
+    _update_checked = True
     try:
         callbacks.on_status("Checking for updates...")
         subprocess.run(

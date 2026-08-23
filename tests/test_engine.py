@@ -248,8 +248,10 @@ def test_streaming_and_retry():
         # Updates are deliberately throttled to ~4/sec so a fast download
         # cannot flood the UI, so not every emitted line arrives.
         first = rec["progress"][0]
-        check("percent parsed from real aria2c output",
-              first["percent"] == 25.0, str(first["percent"]))
+        # The stand-in announces two streams ("135+140"), as a real 480p
+        # video has, so a quarter of the first stream is an eighth overall.
+        check("percent covers the whole video, not one stream",
+              first["percent"] == 12.5, str(first["percent"]))
         check("connection count parsed", first["connections"] == 16)
         check("progress updates are throttled, not flooded",
               len(rec["progress"]) < 3, str(len(rec["progress"])))

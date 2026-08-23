@@ -57,7 +57,7 @@ async def test_shows_current_settings():
         save_config({"output_dir": out, "quality": "720", "max_parallel": 3,
                      "folders": "date", "conns_per_file": 8}, cfg_path)
 
-        app = LumaApp(config_path=cfg_path)
+        app = LumaApp(config_path=cfg_path, auto_prepare=False)
         async with app.run_test() as pilot:
             screen = await open_settings(pilot, app)
             check("settings screen opened",
@@ -81,7 +81,7 @@ async def test_saving_persists():
         out = os.path.join(td, "movies")
         os.makedirs(out)
 
-        app = LumaApp(config_path=cfg_path)
+        app = LumaApp(config_path=cfg_path, auto_prepare=False)
         async with app.run_test() as pilot:
             screen = await open_settings(pilot, app)
             screen.query_one("#set-folder", Input).value = out
@@ -117,7 +117,7 @@ async def test_bad_input_is_refused():
         os.makedirs(good)
         save_config({"output_dir": good, "quality": "480"}, cfg_path)
 
-        app = LumaApp(config_path=cfg_path)
+        app = LumaApp(config_path=cfg_path, auto_prepare=False)
         async with app.run_test() as pilot:
             screen = await open_settings(pilot, app)
 
@@ -163,7 +163,7 @@ async def test_cancel_discards():
     with tempfile.TemporaryDirectory() as td:
         cfg_path = os.path.join(td, "config.json")
         save_config({"quality": "480"}, cfg_path)
-        app = LumaApp(config_path=cfg_path)
+        app = LumaApp(config_path=cfg_path, auto_prepare=False)
         async with app.run_test() as pilot:
             screen = await open_settings(pilot, app)
             screen.query_one("#set-quality", Select).value = "720"
@@ -181,7 +181,7 @@ async def test_reset_to_defaults():
     with tempfile.TemporaryDirectory() as td:
         cfg_path = os.path.join(td, "config.json")
         save_config({"quality": "720", "max_parallel": 9}, cfg_path)
-        app = LumaApp(config_path=cfg_path)
+        app = LumaApp(config_path=cfg_path, auto_prepare=False)
         async with app.run_test() as pilot:
             screen = await open_settings(pilot, app)
             await pilot.click("#settings-reset")
@@ -197,7 +197,7 @@ async def test_theme_applies():
     print("\n[appearance]")
     with tempfile.TemporaryDirectory() as td:
         cfg_path = os.path.join(td, "config.json")
-        app = LumaApp(config_path=cfg_path)
+        app = LumaApp(config_path=cfg_path, auto_prepare=False)
         async with app.run_test() as pilot:
             screen = await open_settings(pilot, app)
             screen.query_one("#set-theme", Select).value = "tokyo-night"
@@ -212,7 +212,7 @@ async def test_theme_applies():
 
 async def test_language_is_plain():
     print("\n[plain language]")
-    app = LumaApp()
+    app = LumaApp(auto_prepare=False)
     async with app.run_test() as pilot:
         screen = await open_settings(pilot, app)
         words = " ".join(

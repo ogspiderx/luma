@@ -226,7 +226,7 @@ async def test_damaged_files_still_let_the_app_start():
             with open(path, "w") as fh:
                 fh.write("{{{{ not json at all")
 
-        app = LumaApp(config_path=cfg, history_path=hist, errors_path=errs)
+        app = LumaApp(config_path=cfg, history_path=hist, errors_path=errs, auto_prepare=False)
         async with app.run_test() as pilot:
             check("the app starts", app.screen is not None)
             check("settings fell back to something usable",
@@ -381,7 +381,7 @@ async def test_nothing_technical_reaches_the_user():
     print("\n[10. the user never sees internals]")
     with tempfile.TemporaryDirectory() as td:
         cfg = os.path.join(td, "config.json")
-        app = LumaApp(config_path=cfg)
+        app = LumaApp(config_path=cfg, auto_prepare=False)
         async with app.run_test() as pilot:
             screen = app.screen
             screen.query_one("#url-input", Input).value = "file:///etc/passwd"

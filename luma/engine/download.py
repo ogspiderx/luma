@@ -151,11 +151,28 @@ _YTDL_RE = re.compile(
     r"(?:\s+at\s+([\d.]+[KMGTP]?i?B/s))?(?:\s+ETA\s+(\S+))?")
 
 
+#: "40MiB", "54.2MB", "900KiB" -> bytes.
+_SIZE = re.compile(r"([\d.]+)\s*([KMGT]?)i?B", re.IGNORECASE)
+_SCALE = {"": 1, "K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
+
+
+def size_to_bytes(text):
+    """Turn a size like '54MiB' into bytes, or 0 when it cannot be read."""
+    match = _SIZE.search(text or "")
+    if not match:
+        return 0
+    try:
+        return int(float(match.group(1)) * _SCALE.get(match.group(2).upper(), 1))
+    except ValueError:
+        return 0
+
+
 def parse_progress(line):
     """Parse a progress line into a dict, or None if it isn't one.
 
-    Returns {percent, done, total, speed, eta, connections} -- the structured
-    form the UI needs. Uses the same patterns as the proven CLI tool.
+    This describes one *stream*. A video at 480p is delivered as two of them
+    (picture and sound), so these numbers are combined into whole-video
+    figures by _overall() before they reach the interface.
     """
     m = _ARIA_RE.search(line)
     if m:
@@ -164,6 +181,8 @@ def parse_progress(line):
             "percent": float(pct),
             "done": done,
             "total": tot,
+            "done_bytes": size_to_bytes(done),
+            "total_bytes": size_to_bytes(tot),
             "speed": f"{spd}/s",
             "eta": eta or "",
             "connections": int(cn),
@@ -171,10 +190,13 @@ def parse_progress(line):
     m = _YTDL_RE.search(line)
     if m:
         pct, tot, spd, eta = m.groups()
+        total_bytes = size_to_bytes(tot)
         return {
             "percent": float(pct),
             "done": "",
             "total": tot,
+            "done_bytes": int(total_bytes * float(pct) / 100.0),
+            "total_bytes": total_bytes,
             "speed": spd or "",
             "eta": eta or "",
             "connections": None,
@@ -246,6 +268,76 @@ def _track_filepath(line, state):
         state["destination"] = m.group(1).strip()
 
 
+#: "[info] abc: Downloading 1 format(s): 135+140" -> two streams.
+_FORMATS_RE = re.compile(r"Downloading\s+\d+\s+format\(s\):\s*([\w+]+)")
+
+
+def _track_streams(line, state):
+    """Follow which of a video's streams is being fetched.
+
+    A video is usually delivered as a picture stream followed by a sound
+    stream. Each reports its own size and percentage, so without this the
+    figures appear to jump backwards when the second one starts.
+    """
+    m = _FORMATS_RE.search(line)
+    if m:
+        state["streams_total"] = max(1, len(m.group(1).split("+")))
+        return
+
+    if _DEST_RE.search(line) or _MERGE_RE.search(line):
+        if state.get("stream_started"):
+            # Bank the stream that just finished so its bytes keep counting.
+            state["done_base"] = (state.get("done_base", 0)
+                                  + state.get("stream_total", 0))
+            state["stream_index"] = state.get("stream_index", 0) + 1
+        state["stream_started"] = bool(_DEST_RE.search(line))
+        state["stream_total"] = 0
+
+
+def _overall(state, parsed):
+    """Turn one stream's figures into figures for the whole video.
+
+    Percentage advances across the streams rather than restarting, and the
+    sizes accumulate, so the numbers only ever move forwards.
+    """
+    streams = max(1, state.get("streams_total", 1))
+    index = min(state.get("stream_index", 0), streams - 1)
+    state["stream_total"] = parsed["total_bytes"] or state.get("stream_total", 0)
+
+    # Prefer the tool's own percentage: the sizes it prints are rounded for
+    # display, so deriving a fraction from them drifts by a percent or two.
+    if parsed["percent"]:
+        fraction = min(1.0, parsed["percent"] / 100.0)
+    elif parsed["total_bytes"]:
+        fraction = min(1.0, parsed["done_bytes"] / parsed["total_bytes"])
+    else:
+        fraction = 0.0
+
+    percent = min(100.0, (index + fraction) / streams * 100.0)
+    # Never let a reading pull the bar backwards.
+    percent = max(percent, state.get("percent_seen", 0.0))
+    state["percent_seen"] = percent
+
+    base = state.get("done_base", 0)
+    done_bytes = base + parsed["done_bytes"]
+    total_bytes = base + (parsed["total_bytes"] or 0)
+    # Once the last stream's size is known the total stops moving; before then
+    # it grows as each stream is announced, which is honest rather than jumpy.
+    total_bytes = max(total_bytes, state.get("total_seen", 0))
+    state["total_seen"] = total_bytes
+
+    return {
+        "percent": percent,
+        "done_bytes": done_bytes,
+        "total_bytes": total_bytes,
+        "speed": parsed["speed"],
+        "eta": parsed["eta"],
+        "connections": parsed["connections"],
+        "stream": index + 1,
+        "streams": streams,
+    }
+
+
 def _track_title(state, tag, callbacks):
     """Report the video's title the first time it can be read off the file."""
     if state.get("title_sent"):
@@ -293,11 +385,13 @@ def _stream_download(cmd, tag, callbacks):
             if not line.strip():
                 continue
             tail.append(line)
+            _track_streams(line, state)
             _track_filepath(line, state)
             _track_title(state, tag, callbacks)
 
             parsed = parse_progress(line)
             if parsed is not None:
+                parsed = _overall(state, parsed)
                 now = time.time()
                 if now - last_progress >= 0.25:   # throttle UI updates
                     last_progress = now

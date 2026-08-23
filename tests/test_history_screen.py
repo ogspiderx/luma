@@ -69,7 +69,7 @@ async def test_shows_what_is_on_disk():
     print("\n[shows what is on disk]")
     with tempfile.TemporaryDirectory() as td:
         hist, errs = seed(td)
-        app = LumaApp(history_path=hist, errors_path=errs)
+        app = LumaApp(history_path=hist, errors_path=errs, auto_prepare=False)
         async with app.run_test() as pilot:
             await pilot.press("ctrl+h")
             await pilot.pause()
@@ -101,7 +101,7 @@ async def test_downloads_and_problems_stay_apart():
     print("\n[downloads and problems stay apart]")
     with tempfile.TemporaryDirectory() as td:
         hist, errs = seed(td)
-        app = LumaApp(history_path=hist, errors_path=errs)
+        app = LumaApp(history_path=hist, errors_path=errs, auto_prepare=False)
         async with app.run_test() as pilot:
             await pilot.press("ctrl+h")
             await pilot.pause()
@@ -124,7 +124,7 @@ async def test_empty_state():
     with tempfile.TemporaryDirectory() as td:
         hist = os.path.join(td, "history.json")
         errs = os.path.join(td, "errors.json")
-        app = LumaApp(history_path=hist, errors_path=errs)
+        app = LumaApp(history_path=hist, errors_path=errs, auto_prepare=False)
         async with app.run_test() as pilot:
             await pilot.press("ctrl+h")
             await pilot.pause()
@@ -147,7 +147,7 @@ async def test_damaged_records_do_not_crash():
             fh.write("{{{ not json at all")
         with open(errs, "w") as fh:
             fh.write("")
-        app = LumaApp(history_path=hist, errors_path=errs)
+        app = LumaApp(history_path=hist, errors_path=errs, auto_prepare=False)
         async with app.run_test() as pilot:
             await pilot.press("ctrl+h")
             await pilot.pause()
@@ -162,7 +162,7 @@ async def test_reads_fresh_each_time():
     print("\n[reads fresh from disk]")
     with tempfile.TemporaryDirectory() as td:
         hist, errs = seed(td)
-        app = LumaApp(history_path=hist, errors_path=errs)
+        app = LumaApp(history_path=hist, errors_path=errs, auto_prepare=False)
         async with app.run_test() as pilot:
             await pilot.press("ctrl+h")
             await pilot.pause()
@@ -188,7 +188,7 @@ async def test_leaving_the_screen():
     print("\n[leaving the screen]")
     with tempfile.TemporaryDirectory() as td:
         hist, errs = seed(td)
-        app = LumaApp(history_path=hist, errors_path=errs)
+        app = LumaApp(history_path=hist, errors_path=errs, auto_prepare=False)
         async with app.run_test() as pilot:
             await pilot.press("ctrl+h")
             await pilot.pause()
@@ -209,7 +209,7 @@ async def test_plain_language():
     print("\n[plain language]")
     with tempfile.TemporaryDirectory() as td:
         hist, errs = seed(td)
-        app = LumaApp(history_path=hist, errors_path=errs)
+        app = LumaApp(history_path=hist, errors_path=errs, auto_prepare=False)
         async with app.run_test() as pilot:
             await pilot.press("ctrl+h")
             await pilot.pause()
