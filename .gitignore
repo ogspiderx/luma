@@ -1,0 +1,14 @@
+# Auto-installed portable tools and downloaded media stay local.
+bin/
+downloads/
+logs/
+
+# Per-user state, created at runtime.
+config.json
+history.json
+errors.json
+
+__pycache__/
+*.pyc
+*.part
+*.aria2
