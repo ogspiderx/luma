@@ -50,9 +50,25 @@
     height: auto;
 }
 
-#history-placeholder {
+/* -- history -- */
+
+#history-tabs {
+    height: 1fr;
+}
+
+#history-table,
+#errors-table {
+    height: 1fr;
+}
+
+.empty-note {
     color: $text-muted;
-    margin-bottom: 1;
+    padding: 1 2;
+    height: auto;
+}
+
+#history-back {
+    margin: 0 2 1 2;
 }
 
 /* -- settings fields -- */

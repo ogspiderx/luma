@@ -21,9 +21,12 @@ class LumaApp(App):
         Binding("ctrl+q", "quit", "Quit", priority=True),
     ]
 
-    def __init__(self, config_path=None, **kwargs):
+    def __init__(self, config_path=None, history_path=None, errors_path=None,
+                 **kwargs):
         super().__init__(**kwargs)
         self._config_path = config_path
+        self._history_path = history_path
+        self._errors_path = errors_path
         self.config = {}
 
     def on_mount(self) -> None:
@@ -63,4 +66,7 @@ class LumaApp(App):
         self.push_screen(SettingsScreen())
 
     def action_open_history(self) -> None:
-        self.push_screen(HistoryScreen())
+        self.push_screen(HistoryScreen(
+            history_path=self._history_path,
+            errors_path=self._errors_path,
+        ))
