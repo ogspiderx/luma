@@ -37,7 +37,7 @@ def test_successes_recorded():
     print("\n[downloads are recorded]")
     with tempfile.TemporaryDirectory() as td:
         hist = os.path.join(td, "history.json")
-        video = os.path.join(td, "Cat Video [abc123].mp4")
+        video = os.path.join(td, "Cat Video [dQw4w9WgXcQ].mp4")
         with open(video, "wb") as fh:
             fh.write(b"x" * 4096)
 
@@ -66,7 +66,7 @@ def test_failures_recorded_separately():
         hist = os.path.join(td, "history.json")
         errs = os.path.join(td, "errors.json")
 
-        record_success("https://youtu.be/ok", os.path.join(td, "A [x].mp4"),
+        record_success("https://youtu.be/ok", os.path.join(td, "A [CdbHAzNB1n0].mp4"),
                        "480", hist)
         record_failure("https://youtu.be/bad", "This video is private.", errs)
 
@@ -92,7 +92,7 @@ def test_batch_recording():
     with tempfile.TemporaryDirectory() as td:
         hist = os.path.join(td, "history.json")
         errs = os.path.join(td, "errors.json")
-        good = os.path.join(td, "Good [1].mp4")
+        good = os.path.join(td, "Good [ODl-DYTyNyM].mp4")
         with open(good, "wb") as fh:
             fh.write(b"y" * 100)
 
@@ -147,7 +147,7 @@ def test_recording_never_raises():
         check("a damaged history reads as empty",
               recent_downloads(path=hist) == [])
         check("and can still be written to",
-              record_success("https://youtu.be/x", os.path.join(td, "B [2].mp4"),
+              record_success("https://youtu.be/x", os.path.join(td, "B [wOLLUrf-ESI].mp4"),
                              "480", hist))
         check("the repaired file reads back",
               len(recent_downloads(path=hist)) == 1)

@@ -110,11 +110,21 @@ def apply_overrides(plan, conns_per_file=None, parallel_files=None,
     return plan
 
 
+#: Below this a measurement is treated as "no reading", not as a real speed.
+USABLE_MBPS = 0.05
+
+
 def describe_plan(plan):
-    """Plain-language summary lines for the UI. No jargon, no flag names."""
+    """Plain-language summary lines for the UI. No jargon, no flag names.
+
+    A speed is only shown when one was actually measured. Some networks block
+    the speed test, and reporting "0.0 Mbps" would be worse than saying
+    nothing -- the download itself reports the real rate anyway.
+    """
     lines = []
-    if plan.get("line_mbps") is not None:
-        lines.append(f"Your speed: {plan['line_mbps']:.1f} Mbps")
+    line_mbps = plan.get("line_mbps")
+    if line_mbps is not None and line_mbps >= USABLE_MBPS:
+        lines.append(f"Your speed: {line_mbps:.1f} Mbps")
     lines.append(f"Videos at once: {plan['parallel_files']}")
     lines.append(f"Connections per video: {plan['conns_per_file']}")
     return lines

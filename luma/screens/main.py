@@ -11,9 +11,10 @@ from textual.widgets import (
     Button, Footer, Header, Input, LoadingIndicator, Static,
 )
 
+from ..config import resolve_output_dir
 from ..engine import download as dl
 from ..engine.callbacks import EngineCallbacks
-from ..engine.constants import DEFAULT_MAX_PARALLEL, DEFAULT_QUALITY
+from ..engine.constants import DEFAULT_MAX_PARALLEL, DEFAULT_QUALITY, human
 from ..engine.errors import LumaError
 from ..engine.inputs import (
     expand_playlists,
@@ -23,8 +24,7 @@ from ..engine.inputs import (
 from ..engine.plan import compute_plan, default_plan, describe_plan
 from ..engine.speedtest import measure_bandwidth
 from ..engine.tools import ensure_tools
-from ..config import resolve_output_dir
-from ..history import record_results
+from ..history import record_results, recent_downloads
 from ..locations import DEFAULT_DOWNLOAD_DIR
 from ..widgets.download_row import DownloadRow
 
@@ -36,12 +36,16 @@ class MainScreen(Screen):
         Binding("ctrl+s", "open_settings", "Settings"),
         Binding("ctrl+h", "open_history", "History"),
         Binding("ctrl+x", "stop_downloads", "Stop"),
+        Binding("ctrl+l", "clear_finished", "Clear done"),
+        Binding("pageup", "scroll_list_up", "Scroll up", show=False),
+        Binding("pagedown", "scroll_list_down", "Scroll down", show=False),
     ]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._rows = {}
         self._download_active = False
+        self._speed_timer = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -58,11 +62,12 @@ class MainScreen(Screen):
             with Horizontal(id="status-row"):
                 yield LoadingIndicator(id="busy")
                 yield Static("Ready.", id="status-line")
+                yield Button("Clear done", id="clear-btn")
         yield Footer()
 
     def on_mount(self) -> None:
-        # The spinner only exists while Luma is actually busy.
         self.query_one("#busy", LoadingIndicator).display = False
+        self.query_one("#clear-btn", Button).display = False
         self.query_one("#url-input", Input).focus()
 
     def _set_busy(self, busy):
@@ -71,17 +76,11 @@ class MainScreen(Screen):
 
     # -- settings the download runs with ---------------------------------
     def _settings(self):
-        """Where downloads go and how they run, taken from the user's settings.
-
-        The download folder is resolved through the settings layer so the
-        folder-grouping choice is honoured and the location is checked before
-        anything is written to it.
-        """
+        """Where downloads go and how they run, taken from the user's settings."""
         config = getattr(self.app, "config", None) or {}
         try:
             output_dir = resolve_output_dir(config)
         except LumaError:
-            # Fall back to the built-in folder rather than refusing to run.
             output_dir = DEFAULT_DOWNLOAD_DIR
         return {
             "output_dir": output_dir,
@@ -96,6 +95,8 @@ class MainScreen(Screen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "download-btn":
             self._start()
+        elif event.button.id == "clear-btn":
+            self.action_clear_finished()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "url-input":
@@ -111,6 +112,39 @@ class MainScreen(Screen):
 
     def action_open_history(self) -> None:
         self.app.action_open_history()
+
+    def action_scroll_list_up(self) -> None:
+        self.query_one("#downloads", VerticalScroll).scroll_page_up()
+
+    def action_scroll_list_down(self) -> None:
+        self.query_one("#downloads", VerticalScroll).scroll_page_down()
+
+    def action_clear_finished(self) -> None:
+        """Take finished downloads out of the list, leaving active ones."""
+        removed = 0
+        for tag, row in list(self._rows.items()):
+            if row.finished:
+                row.remove()
+                del self._rows[tag]
+                removed += 1
+        self._refresh_clear_button()
+        if removed:
+            self.app.notify(
+                f"Cleared {removed} finished "
+                f"download{'s' if removed != 1 else ''}."
+            )
+        else:
+            self.app.notify("Nothing finished to clear yet.",
+                            severity="warning")
+
+    def _refresh_clear_button(self):
+        finished = any(row.finished for row in self._rows.values())
+        self.query_one("#clear-btn", Button).display = bool(finished)
+
+    # -- starting a download ---------------------------------------------
+    def _known_links(self):
+        """Links already in the list, so the same one is not queued twice."""
+        return {row.url for row in self._rows.values()}
 
     def _start(self) -> None:
         if self._download_active:
@@ -128,16 +162,86 @@ class MainScreen(Screen):
         urls, rejected = gather_inputs(split_pasted_text(text))
         for _, reason in rejected:
             self.app.notify(reason, severity="error")
+
+        urls, notices = self._filter_duplicates(urls)
+        for notice in notices:
+            self.app.notify(notice, severity="warning")
         if not urls:
+            if not rejected and not notices:
+                self.app.notify("Nothing to download.", severity="warning")
             return
 
         box.value = ""
-        self._clear_rows()
         self._download_active = True
         self.query_one("#download-btn", Button).disabled = True
         self._set_busy(True)
         dl.reset_cancel()
+        self._start_speed_readout()
         self._download_worker(urls)
+
+    def _filter_duplicates(self, urls):
+        """Drop links already queued or already downloaded, and say so."""
+        notices = []
+        seen, unique = set(), []
+        repeats = 0
+        for url in urls:
+            if url in seen:
+                repeats += 1
+                continue
+            seen.add(url)
+            unique.append(url)
+        if repeats:
+            notices.append(
+                f"Ignored {repeats} repeated "
+                f"link{'s' if repeats != 1 else ''} in what you pasted."
+            )
+
+        already_listed = self._known_links()
+        queued = [u for u in unique if u not in already_listed]
+        skipped = len(unique) - len(queued)
+        if skipped:
+            notices.append(
+                f"{skipped} link{'s are' if skipped != 1 else ' is'} already "
+                f"in the list below."
+            )
+
+        # Only worth mentioning when Luma would not skip them itself.
+        config = getattr(self.app, "config", None) or {}
+        if queued and not config.get("archive", False):
+            try:
+                done = {row.get("url") for row in recent_downloads(limit=500)}
+            except Exception:                          # noqa: BLE001
+                done = set()
+            repeats_of_done = [u for u in queued if u in done]
+            if repeats_of_done:
+                count = len(repeats_of_done)
+                notices.append(
+                    f"{count} of these {'were' if count != 1 else 'was'} "
+                    f"downloaded before - downloading again."
+                )
+        return queued, notices
+
+    # -- live overall speed ----------------------------------------------
+    def _start_speed_readout(self):
+        if self._speed_timer is None:
+            self._speed_timer = self.set_interval(1.0, self._tick_speed)
+
+    def _stop_speed_readout(self):
+        if self._speed_timer is not None:
+            self._speed_timer.stop()
+            self._speed_timer = None
+
+    def _tick_speed(self):
+        """Report the real combined rate, measured from the downloads."""
+        if not self._download_active:
+            return
+        total = sum(row.speed_bytes for row in self._rows.values())
+        active = sum(1 for row in self._rows.values() if not row.finished)
+        if total > 0:
+            self._set_status(
+                f"Downloading {active} of {len(self._rows)} - "
+                f"{human(total)}/s altogether"
+            )
 
     # -- UI updates (always called on the UI thread) ---------------------
     def _set_status(self, text):
@@ -146,14 +250,15 @@ class MainScreen(Screen):
     def _set_plan(self, text):
         self.query_one("#plan-panel", Static).update(text)
 
-    def _clear_rows(self):
-        self._rows.clear()
-        self.query_one("#downloads", VerticalScroll).remove_children()
-
-    def _add_row(self, tag, label):
-        row = DownloadRow(tag, label)
+    def _add_row(self, tag, url):
+        row = DownloadRow(tag, url)
         self._rows[tag] = row
         self.query_one("#downloads", VerticalScroll).mount(row)
+
+    def _row_title(self, tag, title):
+        row = self._rows.get(tag)
+        if row is not None:
+            row.set_title(title)
 
     def _row_progress(self, tag, parsed):
         row = self._rows.get(tag)
@@ -169,11 +274,14 @@ class MainScreen(Screen):
         row = self._rows.get(tag)
         if row is not None:
             row.finish(ok, message)
+        self._refresh_clear_button()
 
     def _finished(self, ok_count, fail_count, output_dir):
         self._download_active = False
+        self._stop_speed_readout()
         self._set_busy(False)
         self.query_one("#download-btn", Button).disabled = False
+        self._refresh_clear_button()
         if fail_count and not ok_count:
             self._set_status("Nothing downloaded. See the messages above.")
         elif fail_count:
@@ -188,11 +296,7 @@ class MainScreen(Screen):
     # -- the worker ------------------------------------------------------
     @work(thread=True, exclusive=True, group="download")
     def _download_worker(self, urls) -> None:
-        """Run the whole download on a background thread.
-
-        The engine blocks, so it must not run on the UI thread. Every update
-        is marshalled back with call_from_thread.
-        """
+        """Run the whole download on a background thread."""
         app = self.app
         cfg = self._settings()
 
@@ -209,6 +313,7 @@ class MainScreen(Screen):
                 f"Getting things ready - {desc} "
                 f"({got * 100 // total if total else 0}%)",
             ),
+            on_video_title=lambda tag, title: ui(self._row_title, tag, title),
             on_video_status=lambda tag, m: ui(self._row_detail, tag, m),
             on_video_progress=lambda tag, p: ui(self._row_progress, tag, p),
             on_video_done=lambda tag, url, ok, reason, path: ui(
@@ -229,9 +334,15 @@ class MainScreen(Screen):
                 ui(self._finished, 0, 0, cfg["output_dir"])
                 return
 
+            # Number rows from what is already listed, so a second batch
+            # continues the count instead of restarting it.
+            offset = len(self._rows)
             total = len(videos)
+            tags = []
             for i, url in enumerate(videos, 1):
-                ui(self._add_row, f"{i}/{total}", f"{i}. {url}")
+                tag = f"{offset + i}"
+                tags.append(tag)
+                ui(self._add_row, tag, url)
 
             if cfg["run_speedtest"]:
                 single, line, rtt = measure_bandwidth(callbacks)
@@ -250,14 +361,12 @@ class MainScreen(Screen):
             ui(self._set_plan, "   ".join(describe_plan(plan)))
             ui(self._set_status,
                f"Downloading {total} video{'s' if total > 1 else ''}...")
-            # The progress bars take over as the sign of life from here, so
-            # the spinner stops rather than adding motion beside them.
             ui(self._set_busy, False)
 
             results = dl.run_downloads(
                 tools, videos, plan, cfg["output_dir"], cfg["quality"],
                 downloader="aria2c", archive=cfg["archive"],
-                callbacks=callbacks,
+                callbacks=callbacks, tags=tags,
             )
 
             ok = sum(1 for r in results if r[1])
@@ -273,12 +382,7 @@ class MainScreen(Screen):
             ui(self._finished, 0, 0, cfg["output_dir"])
 
     def _record_results(self, results, quality=None):
-        """Write the outcome of each video to the history and error records.
-
-        `quality` is the setting the run actually used, so the record matches
-        what was downloaded. Recording must never be able to sink a download
-        that already worked, so any problem here is swallowed.
-        """
+        """Write the outcome of each video to the history and error records."""
         try:
             record_results(results, quality=quality)
         except Exception:                              # noqa: BLE001

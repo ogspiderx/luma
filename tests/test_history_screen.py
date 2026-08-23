@@ -54,11 +54,11 @@ def seed(td):
     """Write a couple of downloads and a couple of failures."""
     hist = os.path.join(td, "history.json")
     errs = os.path.join(td, "errors.json")
-    video = os.path.join(td, "Holiday Clip [aaa].mp4")
+    video = os.path.join(td, "Holiday Clip [dQw4w9WgXcQ].mp4")
     with open(video, "wb") as fh:
         fh.write(b"v" * (3 * 1024 * 1024))
     record_success("https://youtu.be/aaa", video, "480", hist)
-    record_success("https://youtu.be/bbb", os.path.join(td, "Song [bbb].mp4"),
+    record_success("https://youtu.be/bbb", os.path.join(td, "Song [CdbHAzNB1n0].mp4"),
                    "best", hist)
     record_failure("https://youtu.be/ccc", "This video is private.", errs)
     record_failure("https://youtu.be/ddd", "The connection dropped.", errs)
@@ -173,7 +173,7 @@ async def test_reads_fresh_each_time():
 
             # Something else records a download while the screen is closed.
             record_success("https://youtu.be/eee",
-                           os.path.join(td, "Later [eee].mp4"), "720", hist)
+                           os.path.join(td, "Later [nY0FYp8y4Lo].mp4"), "720", hist)
 
             await pilot.press("ctrl+h")
             await pilot.pause()

@@ -26,6 +26,30 @@ def sanitize_filename(name, limit=120):
     return (cleaned or "download")[:limit]
 
 
+#: Trailing " [videoid]" that downloads are named with. YouTube ids are
+#: exactly eleven of these characters; matching that precisely avoids eating a
+#: bracketed word that is genuinely part of the title, such as "[Official]".
+_ID_SUFFIX = re.compile(r"\s*\[[A-Za-z0-9_-]{11}\]$")
+#: Trailing ".f137" style stream-format marker on a part file.
+_FORMAT_SUFFIX = re.compile(r"\.f\d+$")
+
+
+def title_from_filename(path):
+    """Recover the video's title from the file Luma is writing.
+
+    Downloads are named "Title [videoid].ext", and part files carry an extra
+    ".f137" style marker, so the title can be read back without asking the
+    network for it a second time.
+    """
+    if not path:
+        return ""
+    name = re.split(r"[\\/]", str(path).strip())[-1]
+    name = os.path.splitext(name)[0]
+    name = _FORMAT_SUFFIX.sub("", name)
+    name = _ID_SUFFIX.sub("", name)
+    return name.strip()
+
+
 def expand(path):
     """Expand ~ and environment variables, then make the path absolute."""
     expanded = os.path.expandvars(os.path.expanduser(str(path or "").strip()))

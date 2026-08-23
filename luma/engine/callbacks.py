@@ -38,6 +38,9 @@ class EngineCallbacks:
     #: A human-readable milestone for one video. (tag, message)
     on_video_status: Callable[[str, str], None] = field(default=_ignore)
 
+    #: The video's real title, once known. (tag, title)
+    on_video_title: Callable[[str, str], None] = field(default=_ignore)
+
     #: Live progress for one video. (tag, parsed) where ``parsed`` is the dict
     #: returned by :func:`luma.engine.download.parse_progress`.
     on_video_progress: Callable[[str, dict], None] = field(default=_ignore)

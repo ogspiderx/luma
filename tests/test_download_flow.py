@@ -50,8 +50,10 @@ FAKE = textwrap.dedent('''
     #!@PYTHON@
     import os, sys, time
     mode = os.environ.get("LUMA_FAKE_MODE", "ok")
-    out = os.environ.get("LUMA_FAKE_OUT", "/tmp/Fake [abc].mp4")
-    print(f"[download] Destination: {out}.f135.mp4", flush=True)
+    out = os.environ.get("LUMA_FAKE_OUT", "/tmp/Fake [dQw4w9WgXcQ].mp4")
+    # Match how the real downloader names a part file: "Title [id].f135.mp4"
+    stem = os.path.splitext(out)[0]
+    print(f"[download] Destination: {stem}.f135.mp4", flush=True)
     for pct, done in ((20, "10MiB"), (55, "29MiB"), (95, "51MiB")):
         print(f"[#ae87 {done}/54MiB({pct}%) CN:16 DL:900KiB ETA:5s]", flush=True)
         time.sleep(0.35)
@@ -125,7 +127,7 @@ async def test_single_download():
         fake = make_fake(td)
         patch_engine(fake, td)
         os.environ["LUMA_FAKE_MODE"] = "ok"
-        os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake Video [abc].mp4")
+        os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake Video [dQw4w9WgXcQ].mp4")
 
         app = LumaApp()
         async with app.run_test() as pilot:
@@ -167,6 +169,13 @@ async def test_single_download():
             check("download finished", finished)
             await pilot.pause()
 
+            row = screen.query(DownloadRow)[0]
+            shown = text_of(row.query_one(".row-title", Static))
+            check("the row is named after the video, not the link",
+                  shown == "Fake Video", shown)
+            check("no link is left on display",
+                  "youtu.be" not in shown, shown)
+
             check("button re-enabled afterwards",
                   not screen.query_one("#download-btn", Button).disabled)
             status = text_of(screen.query_one("#status-line", Static))
@@ -191,7 +200,7 @@ async def test_multiple_downloads():
         fake = make_fake(td)
         patch_engine(fake, td)
         os.environ["LUMA_FAKE_MODE"] = "ok"
-        os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake [x].mp4")
+        os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake [CdbHAzNB1n0].mp4")
 
         app = LumaApp()
         async with app.run_test() as pilot:
@@ -225,7 +234,7 @@ async def test_failure_is_explained():
         fake = make_fake(td)
         patch_engine(fake, td)
         os.environ["LUMA_FAKE_MODE"] = "fail"
-        os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake [x].mp4")
+        os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake [CdbHAzNB1n0].mp4")
 
         app = LumaApp()
         async with app.run_test() as pilot:
@@ -284,7 +293,7 @@ async def test_results_are_recorded():
         hist = os.path.join(td, "history.json")
         errs = os.path.join(td, "errors.json")
 
-        target = os.path.join(td, "Recorded Video [zzz].mp4")
+        target = os.path.join(td, "Recorded Video [ODl-DYTyNyM].mp4")
         with open(target, "wb") as fh:
             fh.write(b"z" * 2048)
         os.environ["LUMA_FAKE_MODE"] = "ok"

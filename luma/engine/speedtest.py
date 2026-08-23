@@ -61,6 +61,23 @@ def measure_latency(host=SPEEDTEST_HOST, port=443, samples=5):
     return statistics.median(times) if times else 40.0
 
 
+#: Some networks block the speed-test host outright. Once that is established
+#: there is no point paying twelve seconds for the same answer every time, so
+#: the result is remembered for the rest of the session.
+_unavailable = False
+
+
+def speedtest_unavailable():
+    """True if the speed test has already been found unreachable."""
+    return _unavailable
+
+
+def reset_speedtest_state():
+    """Forget a previous failure (used by the tests)."""
+    global _unavailable
+    _unavailable = False
+
+
 def measure_bandwidth(callbacks=None):
     """Returns (single_mbps, line_mbps, rtt_ms).
 
@@ -70,11 +87,21 @@ def measure_bandwidth(callbacks=None):
     The ratio line/single is how many connections it takes to fill the pipe,
     which is what compute_plan() turns into a download plan.
     """
+    global _unavailable
     callbacks = callbacks or EngineCallbacks()
+
+    if _unavailable:
+        return 0.0, 0.0, measure_latency()
 
     callbacks.on_status("Checking your connection speed...")
     b, t = _timed_download(25_000_000, max_secs=6)
     single_mbps = b * 8 / t / 1e6
+
+    if b == 0:
+        # The host could not be reached at all. Give up rather than spend
+        # another six seconds proving it, and do not ask again this session.
+        _unavailable = True
+        return 0.0, 0.0, measure_latency()
 
     callbacks.on_status("Checking how many downloads it can handle...")
     n_streams = 8

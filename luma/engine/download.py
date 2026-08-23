@@ -19,6 +19,7 @@ import time
 
 from .callbacks import EngineCallbacks
 from .constants import MAX_ATTEMPTS
+from .paths import title_from_filename
 
 # --------------------------------------------------------------------------- #
 #  Child-process registry -- so quitting never leaves orphans running.         #
@@ -245,6 +246,19 @@ def _track_filepath(line, state):
         state["destination"] = m.group(1).strip()
 
 
+def _track_title(state, tag, callbacks):
+    """Report the video's title the first time it can be read off the file."""
+    if state.get("title_sent"):
+        return
+    title = title_from_filename(
+        state.get("filepath") or state.get("destination")
+    )
+    if title:
+        state["title_sent"] = True
+        state["title"] = title
+        callbacks.on_video_title(tag, title)
+
+
 # --------------------------------------------------------------------------- #
 #  Running one download                                                        #
 # --------------------------------------------------------------------------- #
@@ -280,6 +294,7 @@ def _stream_download(cmd, tag, callbacks):
                 continue
             tail.append(line)
             _track_filepath(line, state)
+            _track_title(state, tag, callbacks)
 
             parsed = parse_progress(line)
             if parsed is not None:
@@ -313,9 +328,9 @@ def _stream_download(cmd, tag, callbacks):
 
 
 def download_one(tools, url, plan, output_dir, quality, downloader, archive,
-                 index, total, callbacks):
+                 index, total, callbacks, tag=None):
     """Download one video, retrying transient failures. Resumes each attempt."""
-    tag = f"{index}/{total}"
+    tag = tag if tag is not None else f"{index}/{total}"
     callbacks.on_video_start(tag, url)
     cmd = build_cmd(tools, url, plan, output_dir, quality, downloader, archive)
 
@@ -350,11 +365,14 @@ def download_one(tools, url, plan, output_dir, quality, downloader, archive,
 
 
 def run_downloads(tools, urls, plan, output_dir, quality, downloader="aria2c",
-                  archive=False, callbacks=None):
+                  archive=False, callbacks=None, tags=None):
     """Download every URL, fanning out to plan['parallel_files'] at a time.
 
     One failure never stops the others. Returns a list of
     (url, ok, reason, filepath) tuples.
+
+    `tags` optionally names each download, so a caller that is already showing
+    a numbered list can keep its own numbering instead of restarting at one.
     """
     callbacks = callbacks or EngineCallbacks()
     os.makedirs(output_dir, exist_ok=True)
@@ -368,6 +386,7 @@ def run_downloads(tools, urls, plan, output_dir, quality, downloader="aria2c",
             ex.submit(
                 download_one, tools, url, plan, output_dir, quality,
                 downloader, archive, i + 1, total, callbacks,
+                tags[i] if tags and i < len(tags) else None,
             ): url
             for i, url in enumerate(urls)
         }

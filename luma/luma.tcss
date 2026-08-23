@@ -70,6 +70,20 @@ Screen {
     width: 1fr;
 }
 
+/* Only offered once there is something finished to clear. */
+#clear-btn {
+    min-width: 13;
+    height: 1;
+    border: none;
+    background: $panel;
+    color: $text-muted;
+}
+
+#clear-btn:hover {
+    background: $boost;
+    color: $foreground;
+}
+
 /* -- a download in progress -- */
 
 DownloadRow {

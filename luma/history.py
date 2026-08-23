@@ -10,6 +10,7 @@ mid-write cannot destroy an existing record.
 import datetime
 import os
 
+from .engine.paths import title_from_filename
 from .locations import ERRORS_PATH, HISTORY_PATH
 from .storage import append_capped, read_list
 
@@ -24,13 +25,7 @@ def _now():
 
 def _title_from_path(path):
     """Recover a readable title from a finished file's name."""
-    if not path:
-        return "Unknown video"
-    name = os.path.splitext(os.path.basename(path))[0]
-    # Downloads are named "Title [videoid]" -- drop the id for display.
-    if name.endswith("]") and " [" in name:
-        name = name.rsplit(" [", 1)[0]
-    return name or "Unknown video"
+    return title_from_filename(path) or "Unknown video"
 
 
 def _size_of(path):
