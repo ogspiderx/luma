@@ -22,6 +22,7 @@ from ..engine.plan import compute_plan, default_plan, describe_plan
 from ..engine.speedtest import measure_bandwidth
 from ..engine.tools import ensure_tools
 from ..config import resolve_output_dir
+from ..history import record_results
 from ..locations import DEFAULT_DOWNLOAD_DIR
 from ..widgets.download_row import DownloadRow
 
@@ -245,7 +246,7 @@ class MainScreen(Screen):
             )
 
             ok = sum(1 for r in results if r[1])
-            self._record_results(results)
+            self._record_results(results, cfg["quality"])
             ui(self._finished, ok, len(results) - ok, cfg["output_dir"])
 
         except LumaError as exc:
@@ -256,6 +257,14 @@ class MainScreen(Screen):
                "Something went wrong. Please try again.")
             ui(self._finished, 0, 0, cfg["output_dir"])
 
-    def _record_results(self, results):
-        """Hook for recording finished downloads. Wired up in a later phase."""
-        return
+    def _record_results(self, results, quality=None):
+        """Write the outcome of each video to the history and error records.
+
+        `quality` is the setting the run actually used, so the record matches
+        what was downloaded. Recording must never be able to sink a download
+        that already worked, so any problem here is swallowed.
+        """
+        try:
+            record_results(results, quality=quality)
+        except Exception:                              # noqa: BLE001
+            pass

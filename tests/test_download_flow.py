@@ -72,13 +72,26 @@ def make_fake(tmpdir):
 
 
 def patch_engine(fake_path, tmpdir):
-    """Point the screen's engine calls at the stand-in downloader."""
+    """Point the screen's engine calls at the stand-in downloader.
+
+    Recording is redirected into the temporary folder too, so running the
+    tests never touches the real history and error files.
+    """
+    from luma import history as history_mod
+
     main_mod.ensure_tools = lambda cb=None: {
         "yt-dlp": fake_path, "aria2c": "aria2c",
         "ffmpeg": "/usr/bin/ffmpeg", "ffprobe": "/usr/bin/ffprobe",
     }
     main_mod.measure_bandwidth = lambda cb=None: (50.0, 100.0, 25.0)
     main_mod.expand_playlists = lambda ytdlp, urls, cb=None: list(urls)
+    main_mod.record_results = (
+        lambda results, quality=None: history_mod.record_results(
+            results, quality,
+            os.path.join(tmpdir, "history.json"),
+            os.path.join(tmpdir, "errors.json"),
+        )
+    )
 
 
 async def wait_for_idle(app, timeout=45):
@@ -237,6 +250,76 @@ async def test_bad_link_rejected():
         check("empty box does not start a download", not screen._download_active)
 
 
+async def test_results_are_recorded():
+    """A finished run must leave a record behind, successes and failures apart."""
+    print("\n[downloads are recorded]")
+    from luma.storage import read_list
+
+    with tempfile.TemporaryDirectory() as td:
+        fake = make_fake(td)
+        patch_engine(fake, td)   # also redirects recording into `td`
+        hist = os.path.join(td, "history.json")
+        errs = os.path.join(td, "errors.json")
+
+        target = os.path.join(td, "Recorded Video [zzz].mp4")
+        with open(target, "wb") as fh:
+            fh.write(b"z" * 2048)
+        os.environ["LUMA_FAKE_MODE"] = "ok"
+        os.environ["LUMA_FAKE_OUT"] = target
+
+        app = LumaApp()
+        async with app.run_test() as pilot:
+            screen = app.screen
+            screen._settings = lambda: {
+                "output_dir": td, "quality": "720", "max_parallel": 8,
+                "conns_per_file": None, "archive": False,
+                "run_speedtest": False,
+            }
+            screen.query_one("#url-input", Input).value = "https://youtu.be/zzz"
+            await pilot.click("#download-btn")
+            await pilot.pause()
+            await wait_for_idle(app)
+            await pilot.pause()
+
+        rows = read_list(hist)
+        check("the finished download was recorded", len(rows) == 1, str(len(rows)))
+        if rows:
+            check("its title was recorded",
+                  rows[0]["title"] == "Recorded Video", rows[0]["title"])
+            check("its real file size was recorded",
+                  rows[0]["size"] == 2048, str(rows[0]["size"]))
+            check("the quality in use was recorded",
+                  rows[0]["quality"] == "720", str(rows[0]["quality"]))
+        check("no failures were recorded", read_list(errs) == [])
+
+        # Now a failing run, which must land in the other file only.
+        os.environ["LUMA_FAKE_MODE"] = "fail"
+        app = LumaApp()
+        async with app.run_test() as pilot:
+            screen = app.screen
+            screen._settings = lambda: {
+                "output_dir": td, "quality": "720", "max_parallel": 8,
+                "conns_per_file": None, "archive": False,
+                "run_speedtest": False,
+            }
+            screen.query_one("#url-input", Input).value = "https://youtu.be/bad"
+            await pilot.click("#download-btn")
+            await pilot.pause()
+            await wait_for_idle(app, timeout=90)
+            await pilot.pause()
+
+        errors = read_list(errs)
+        check("the failure was recorded", len(errors) == 1, str(len(errors)))
+        if errors:
+            check("the failure explains itself plainly",
+                  "connection" in errors[0]["reason"].lower(),
+                  errors[0]["reason"])
+        check("the failure did not pollute the download list",
+              len(read_list(hist)) == 1, str(len(read_list(hist))))
+        os.environ.pop("LUMA_FAKE_MODE", None)
+        os.environ.pop("LUMA_FAKE_OUT", None)
+
+
 async def run_all():
     print("=" * 62)
     print("  Luma download-flow checks")
@@ -245,6 +328,7 @@ async def run_all():
     await test_multiple_downloads()
     await test_failure_is_explained()
     await test_bad_link_rejected()
+    await test_results_are_recorded()
     os.environ.pop("LUMA_FAKE_MODE", None)
     os.environ.pop("LUMA_FAKE_OUT", None)
 
