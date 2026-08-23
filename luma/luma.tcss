@@ -39,18 +39,63 @@
 
 #settings-body,
 #history-body {
-    padding: 1 2;
+    padding: 0 2;
     height: 1fr;
 }
 
 #settings-title,
 #history-title {
     text-style: bold;
-    margin-bottom: 1;
+    padding: 1 2 0 2;
+    height: auto;
 }
 
-#settings-placeholder,
 #history-placeholder {
     color: $text-muted;
     margin-bottom: 1;
+}
+
+/* -- settings fields -- */
+
+.setting {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.setting Label {
+    color: $text-muted;
+}
+
+.setting-switch {
+    height: auto;
+    align-vertical: middle;
+}
+
+.setting-switch Label {
+    margin-left: 1;
+    color: $foreground;
+}
+
+.field-error {
+    color: $error;
+    height: auto;
+}
+
+Input.-invalid {
+    border: tall $error;
+}
+
+#settings-actions {
+    height: auto;
+    padding: 0 2 1 2;
+}
+
+#settings-actions Button {
+    margin-right: 2;
+}
+
+#settings-message {
+    color: $warning;
+    height: auto;
+    padding: 0 2;
 }

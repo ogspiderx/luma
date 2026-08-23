@@ -66,14 +66,14 @@ async def test_settings_opens_and_closes():
 
 
 async def test_settings_back_button():
-    print("\n[settings back button]")
+    print("\n[leaving settings by button]")
     app = LumaApp()
     async with app.run_test() as pilot:
         await pilot.press("ctrl+s")
         await pilot.pause()
-        await pilot.click("#settings-back")
+        await pilot.click("#settings-cancel")
         await pilot.pause()
-        check("back button returns to main",
+        check("cancel button returns to main",
               isinstance(app.screen, MainScreen), type(app.screen).__name__)
 
 
