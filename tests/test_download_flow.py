@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""
+End-to-end checks of the download flow inside the running interface.
+
+A stand-in downloader replaying real captured tool output stands in for
+yt-dlp, so the whole path -- button press, worker thread, engine, callbacks
+marshalled back to the UI, progress rows, completion -- is exercised without
+depending on the network.
+
+    python tests/test_download_flow.py
+"""
+
+import asyncio
+import os
+import stat
+import sys
+import tempfile
+import textwrap
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from textual.widgets import Button, Input, Static      # noqa: E402
+
+from luma.app import LumaApp                           # noqa: E402
+from luma.screens import main as main_mod              # noqa: E402
+from luma.widgets.download_row import DownloadRow      # noqa: E402
+
+_failures = []
+
+
+def check(label, condition, detail=""):
+    if condition:
+        print(f"  PASS  {label}")
+    else:
+        print(f"  FAIL  {label}  {detail}")
+        _failures.append(label)
+
+
+def text_of(widget):
+    """Read a Static's visible text across Textual versions."""
+    for attr in ("content", "renderable"):
+        value = getattr(widget, attr, None)
+        if value is not None:
+            return str(value)
+    return str(widget.render())
+
+
+FAKE = textwrap.dedent('''
+    #!@PYTHON@
+    import os, sys, time
+    mode = os.environ.get("LUMA_FAKE_MODE", "ok")
+    out = os.environ.get("LUMA_FAKE_OUT", "/tmp/Fake [abc].mp4")
+    print(f"[download] Destination: {out}.f135.mp4", flush=True)
+    for pct, done in ((20, "10MiB"), (55, "29MiB"), (95, "51MiB")):
+        print(f"[#ae87 {done}/54MiB({pct}%) CN:16 DL:900KiB ETA:5s]", flush=True)
+        time.sleep(0.35)
+    if mode == "fail":
+        print("ERROR: unable to download video data: connection reset", flush=True)
+        sys.exit(1)
+    print(f'[Merger] Merging formats into "{out}"', flush=True)
+    sys.exit(0)
+''')
+
+
+def make_fake(tmpdir):
+    path = os.path.join(tmpdir, "fake_dl.py")
+    with open(path, "w") as fh:
+        fh.write(FAKE.replace("@PYTHON@", sys.executable).lstrip())
+    os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC | stat.S_IREAD)
+    return path
+
+
+def patch_engine(fake_path, tmpdir):
+    """Point the screen's engine calls at the stand-in downloader."""
+    main_mod.ensure_tools = lambda cb=None: {
+        "yt-dlp": fake_path, "aria2c": "aria2c",
+        "ffmpeg": "/usr/bin/ffmpeg", "ffprobe": "/usr/bin/ffprobe",
+    }
+    main_mod.measure_bandwidth = lambda cb=None: (50.0, 100.0, 25.0)
+    main_mod.expand_playlists = lambda ytdlp, urls, cb=None: list(urls)
+
+
+async def wait_for_idle(app, timeout=45):
+    """Wait until the screen reports the download finished."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not app.screen._download_active:
+            return True
+        await asyncio.sleep(0.1)
+    return False
+
+
+async def test_single_download():
+    print("\n[single download]")
+    with tempfile.TemporaryDirectory() as td:
+        fake = make_fake(td)
+        patch_engine(fake, td)
+        os.environ["LUMA_FAKE_MODE"] = "ok"
+        os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake Video [abc].mp4")
+
+        app = LumaApp()
+        async with app.run_test() as pilot:
+            screen = app.screen
+            screen._settings = lambda: {
+                "output_dir": td, "quality": "480", "max_parallel": 8,
+                "conns_per_file": None, "archive": False,
+                "run_speedtest": True,
+            }
+            box = screen.query_one("#url-input", Input)
+            box.value = "https://youtu.be/abc"
+            await pilot.click("#download-btn")
+            await pilot.pause()
+
+            check("download button disables while running",
+                  screen.query_one("#download-btn", Button).disabled)
+            check("link box was cleared", box.value == "")
+
+            # The UI must keep responding while the blocking engine runs.
+            await asyncio.sleep(0.6)
+            responsive = False
+            try:
+                await asyncio.wait_for(pilot.pause(), timeout=3)
+                responsive = True
+            except asyncio.TimeoutError:
+                responsive = False
+            check("interface stays responsive during the download", responsive)
+
+            rows = screen.query(DownloadRow)
+            check("a progress row appeared", len(rows) == 1, str(len(rows)))
+
+            finished = await wait_for_idle(app)
+            check("download finished", finished)
+            await pilot.pause()
+
+            check("button re-enabled afterwards",
+                  not screen.query_one("#download-btn", Button).disabled)
+            status = text_of(screen.query_one("#status-line", Static))
+            check("status reports success", "done" in status.lower(), status)
+            row = screen.query(DownloadRow)[0]
+            check("row marked as done", row.has_class("-done"))
+            detail = text_of(row.query_one(".row-detail", Static))
+            check("row shows the saved file name",
+                  "Fake Video" in detail, detail)
+
+            plan = text_of(screen.query_one("#plan-panel", Static))
+            check("plan panel explains the setup in plain words",
+                  "Videos at once" in plan, plan)
+            check("plan panel names no tools",
+                  not any(t in plan.lower()
+                          for t in ("yt-dlp", "aria2c", "ffmpeg")), plan)
+
+
+async def test_multiple_downloads():
+    print("\n[several at once]")
+    with tempfile.TemporaryDirectory() as td:
+        fake = make_fake(td)
+        patch_engine(fake, td)
+        os.environ["LUMA_FAKE_MODE"] = "ok"
+        os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake [x].mp4")
+
+        app = LumaApp()
+        async with app.run_test() as pilot:
+            screen = app.screen
+            screen._settings = lambda: {
+                "output_dir": td, "quality": "480", "max_parallel": 8,
+                "conns_per_file": None, "archive": False,
+                "run_speedtest": True,
+            }
+            screen.query_one("#url-input", Input).value = (
+                "https://youtu.be/a https://youtu.be/b https://youtu.be/c"
+            )
+            await pilot.click("#download-btn")
+            await pilot.pause()
+
+            rows = screen.query(DownloadRow)
+            check("one row per video", len(rows) == 3, str(len(rows)))
+
+            finished = await wait_for_idle(app)
+            check("all finished", finished)
+            await pilot.pause()
+            done = [r for r in screen.query(DownloadRow) if r.has_class("-done")]
+            check("every row completed", len(done) == 3, str(len(done)))
+
+
+async def test_failure_is_explained():
+    print("\n[failure handling]")
+    with tempfile.TemporaryDirectory() as td:
+        fake = make_fake(td)
+        patch_engine(fake, td)
+        os.environ["LUMA_FAKE_MODE"] = "fail"
+        os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake [x].mp4")
+
+        app = LumaApp()
+        async with app.run_test() as pilot:
+            screen = app.screen
+            screen._settings = lambda: {
+                "output_dir": td, "quality": "480", "max_parallel": 8,
+                "conns_per_file": None, "archive": False,
+                "run_speedtest": False,   # keep the retry loop quick
+            }
+            screen.query_one("#url-input", Input).value = "https://youtu.be/a"
+            await pilot.click("#download-btn")
+            await pilot.pause()
+
+            finished = await wait_for_idle(app, timeout=90)
+            check("failing download completes rather than hanging", finished)
+            await pilot.pause()
+            row = screen.query(DownloadRow)[0]
+            check("row marked as failed", row.has_class("-failed"))
+            detail = text_of(row.query_one(".row-detail", Static))
+            check("failure explained in plain language",
+                  "connection" in detail.lower(), detail)
+            check("failure exposes no tool internals",
+                  not any(t in detail.lower()
+                          for t in ("yt-dlp", "aria2c", "traceback")), detail)
+            check("app still usable after a failure",
+                  not screen.query_one("#download-btn", Button).disabled)
+
+
+async def test_bad_link_rejected():
+    print("\n[bad links]")
+    app = LumaApp()
+    async with app.run_test() as pilot:
+        screen = app.screen
+        screen.query_one("#url-input", Input).value = "file:///etc/passwd"
+        await pilot.click("#download-btn")
+        await pilot.pause()
+        check("no download started for a non-web link",
+              not screen._download_active)
+        check("no progress rows created",
+              len(screen.query(DownloadRow)) == 0)
+
+        screen.query_one("#url-input", Input).value = ""
+        await pilot.click("#download-btn")
+        await pilot.pause()
+        check("empty box does not start a download", not screen._download_active)
+
+
+async def run_all():
+    print("=" * 62)
+    print("  Luma download-flow checks")
+    print("=" * 62)
+    await test_single_download()
+    await test_multiple_downloads()
+    await test_failure_is_explained()
+    await test_bad_link_rejected()
+    os.environ.pop("LUMA_FAKE_MODE", None)
+    os.environ.pop("LUMA_FAKE_OUT", None)
+
+    print("\n" + "=" * 62)
+    if _failures:
+        print(f"  {len(_failures)} CHECK(S) FAILED:")
+        for f in _failures:
+            print(f"    - {f}")
+        return 1
+    print("  ALL DOWNLOAD-FLOW CHECKS PASSED")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(run_all()))

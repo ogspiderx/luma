@@ -1,10 +1,28 @@
 """Luma's main screen: paste a link, start a download, watch it happen."""
 
+import os
+
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Input, Static
+
+from ..engine import download as dl
+from ..engine.callbacks import EngineCallbacks
+from ..engine.constants import DEFAULT_MAX_PARALLEL, DEFAULT_QUALITY
+from ..engine.errors import LumaError
+from ..engine.inputs import (
+    expand_playlists,
+    gather_inputs,
+    split_pasted_text,
+)
+from ..engine.plan import compute_plan, default_plan, describe_plan
+from ..engine.speedtest import measure_bandwidth
+from ..engine.tools import ensure_tools
+from ..locations import DEFAULT_DOWNLOAD_DIR
+from ..widgets.download_row import DownloadRow
 
 
 class MainScreen(Screen):
@@ -13,7 +31,13 @@ class MainScreen(Screen):
     BINDINGS = [
         Binding("ctrl+s", "open_settings", "Settings"),
         Binding("ctrl+h", "open_history", "History"),
+        Binding("ctrl+x", "stop_downloads", "Stop"),
     ]
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._rows = {}
+        self._download_active = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -33,9 +57,199 @@ class MainScreen(Screen):
     def on_mount(self) -> None:
         self.query_one("#url-input", Input).focus()
 
-    # -- actions ---------------------------------------------------------
+    # -- settings the download runs with ---------------------------------
+    def _settings(self):
+        """Where downloads go and how they run.
+
+        Reads from the app's config when one is available, falling back to
+        built-in defaults, so this screen keeps working before the settings
+        system exists.
+        """
+        config = getattr(self.app, "config", None) or {}
+        return {
+            "output_dir": config.get("output_dir") or DEFAULT_DOWNLOAD_DIR,
+            "quality": config.get("quality") or DEFAULT_QUALITY,
+            "max_parallel": config.get("max_parallel") or DEFAULT_MAX_PARALLEL,
+            "conns_per_file": config.get("conns_per_file"),
+            "archive": bool(config.get("archive", False)),
+            "run_speedtest": not config.get("skip_speedtest", False),
+        }
+
+    # -- user actions ----------------------------------------------------
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "download-btn":
+            self._start()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "url-input":
+            self._start()
+
+    def action_stop_downloads(self) -> None:
+        if self._download_active:
+            dl.request_cancel()
+            self._set_status("Stopping...")
+
     def action_open_settings(self) -> None:
         self.app.action_open_settings()
 
     def action_open_history(self) -> None:
         self.app.action_open_history()
+
+    def _start(self) -> None:
+        if self._download_active:
+            self.app.notify("A download is already running.",
+                            severity="warning")
+            return
+
+        box = self.query_one("#url-input", Input)
+        text = box.value.strip()
+        if not text:
+            self.app.notify("Paste a YouTube link first.", severity="warning")
+            box.focus()
+            return
+
+        urls, rejected = gather_inputs(split_pasted_text(text))
+        for _, reason in rejected:
+            self.app.notify(reason, severity="error")
+        if not urls:
+            return
+
+        box.value = ""
+        self._clear_rows()
+        self._download_active = True
+        self.query_one("#download-btn", Button).disabled = True
+        dl.reset_cancel()
+        self._download_worker(urls)
+
+    # -- UI updates (always called on the UI thread) ---------------------
+    def _set_status(self, text):
+        self.query_one("#status-line", Static).update(text)
+
+    def _set_plan(self, text):
+        self.query_one("#plan-panel", Static).update(text)
+
+    def _clear_rows(self):
+        self._rows.clear()
+        self.query_one("#downloads", VerticalScroll).remove_children()
+
+    def _add_row(self, tag, label):
+        row = DownloadRow(tag, label)
+        self._rows[tag] = row
+        self.query_one("#downloads", VerticalScroll).mount(row)
+
+    def _row_progress(self, tag, parsed):
+        row = self._rows.get(tag)
+        if row is not None:
+            row.set_progress(parsed)
+
+    def _row_detail(self, tag, text):
+        row = self._rows.get(tag)
+        if row is not None:
+            row.set_detail(text)
+
+    def _row_finish(self, tag, ok, message):
+        row = self._rows.get(tag)
+        if row is not None:
+            row.finish(ok, message)
+
+    def _finished(self, ok_count, fail_count, output_dir):
+        self._download_active = False
+        self.query_one("#download-btn", Button).disabled = False
+        if fail_count and not ok_count:
+            self._set_status("Nothing downloaded. See the messages above.")
+        elif fail_count:
+            self._set_status(
+                f"Finished: {ok_count} saved, {fail_count} did not work. "
+                f"Saved in {output_dir}"
+            )
+        else:
+            self._set_status(f"All done. Saved in {output_dir}")
+        self.query_one("#url-input", Input).focus()
+
+    # -- the worker ------------------------------------------------------
+    @work(thread=True, exclusive=True, group="download")
+    def _download_worker(self, urls) -> None:
+        """Run the whole download on a background thread.
+
+        The engine blocks, so it must not run on the UI thread. Every update
+        is marshalled back with call_from_thread.
+        """
+        app = self.app
+        cfg = self._settings()
+
+        def ui(fn, *args):
+            try:
+                app.call_from_thread(fn, *args)
+            except Exception:
+                pass  # app is shutting down
+
+        callbacks = EngineCallbacks(
+            on_status=lambda m: ui(self._set_status, m),
+            on_tool_progress=lambda desc, got, total: ui(
+                self._set_status,
+                f"Getting things ready - {desc} "
+                f"({got * 100 // total if total else 0}%)",
+            ),
+            on_video_status=lambda tag, m: ui(self._row_detail, tag, m),
+            on_video_progress=lambda tag, p: ui(self._row_progress, tag, p),
+            on_video_done=lambda tag, url, ok, reason, path: ui(
+                self._row_finish, tag, ok,
+                ("Saved: " + os.path.basename(path)) if ok and path
+                else ("Saved." if ok else reason),
+            ),
+        )
+
+        try:
+            ui(self._set_status, "Getting things ready...")
+            tools = ensure_tools(callbacks)
+
+            ui(self._set_status, "Checking the link...")
+            videos = expand_playlists(tools["yt-dlp"], urls, callbacks)
+            if not videos:
+                ui(self._set_status, "Nothing to download.")
+                ui(self._finished, 0, 0, cfg["output_dir"])
+                return
+
+            total = len(videos)
+            for i, url in enumerate(videos, 1):
+                ui(self._add_row, f"{i}/{total}", f"{i}. {url}")
+
+            if cfg["run_speedtest"]:
+                single, line, rtt = measure_bandwidth(callbacks)
+                plan = compute_plan(single, line, rtt, total,
+                                    cfg["max_parallel"])
+            else:
+                plan = default_plan(total, cfg["max_parallel"])
+
+            if cfg["conns_per_file"]:
+                from ..engine.plan import apply_overrides
+                plan = apply_overrides(
+                    plan, conns_per_file=cfg["conns_per_file"],
+                    num_urls=total,
+                )
+
+            ui(self._set_plan, "   ".join(describe_plan(plan)))
+            ui(self._set_status,
+               f"Downloading {total} video{'s' if total > 1 else ''}...")
+
+            results = dl.run_downloads(
+                tools, videos, plan, cfg["output_dir"], cfg["quality"],
+                downloader="aria2c", archive=cfg["archive"],
+                callbacks=callbacks,
+            )
+
+            ok = sum(1 for r in results if r[1])
+            self._record_results(results)
+            ui(self._finished, ok, len(results) - ok, cfg["output_dir"])
+
+        except LumaError as exc:
+            ui(self._set_status, exc.user_message)
+            ui(self._finished, 0, 0, cfg["output_dir"])
+        except Exception:                                   # noqa: BLE001
+            ui(self._set_status,
+               "Something went wrong. Please try again.")
+            ui(self._finished, 0, 0, cfg["output_dir"])
+
+    def _record_results(self, results):
+        """Hook for recording finished downloads. Wired up in a later phase."""
+        return
