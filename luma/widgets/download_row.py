@@ -1,35 +1,20 @@
 """One row per video being downloaded."""
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Vertical
 from textual.widget import Widget
 from textual.widgets import ProgressBar, Static
+
+#: How long the bar takes to glide to a new value. Short enough to still feel
+#: like live progress, long enough to remove the stepping.
+FILL_SECONDS = 0.3
+
+#: How long a finished row stays highlighted before settling.
+HIGHLIGHT_SECONDS = 1.2
 
 
 class DownloadRow(Widget):
     """Shows a single video's title, progress bar and current state."""
-
-    DEFAULT_CSS = """
-    DownloadRow {
-        height: auto;
-        margin-bottom: 1;
-    }
-    DownloadRow .row-title {
-        text-overflow: ellipsis;
-    }
-    DownloadRow .row-detail {
-        color: $text-muted;
-    }
-    DownloadRow ProgressBar {
-        width: 1fr;
-    }
-    DownloadRow.-done .row-title {
-        color: $success;
-    }
-    DownloadRow.-failed .row-title {
-        color: $error;
-    }
-    """
 
     def __init__(self, tag, label, **kwargs):
         super().__init__(**kwargs)
@@ -40,11 +25,10 @@ class DownloadRow(Widget):
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Static(self._label, classes="row-title")
-            with Horizontal():
-                yield ProgressBar(
-                    total=100, show_eta=False, show_percentage=True
-                )
-            yield Static("Starting...", classes="row-detail")
+            yield ProgressBar(
+                total=100, show_eta=False, show_percentage=True,
+            )
+            yield Static("Waiting...", classes="row-detail")
 
     # -- updates ---------------------------------------------------------
     def set_title(self, text):
@@ -59,11 +43,14 @@ class DownloadRow(Widget):
         if self._finished:
             return
         bar = self.query_one(ProgressBar)
-        bar.update(progress=parsed["percent"])
+        # Glide to the new value instead of jumping, so the bar reads as
+        # motion rather than a series of steps.
+        bar.animate("progress", value=float(parsed["percent"]),
+                    duration=FILL_SECONDS)
 
         bits = []
         if parsed.get("total"):
-            bits.append(f"{parsed['total']}")
+            bits.append(str(parsed["total"]))
         if parsed.get("speed"):
             bits.append(f"at {parsed['speed']}")
         if parsed.get("eta"):
@@ -74,6 +61,15 @@ class DownloadRow(Widget):
         """Mark the row finished; further progress updates are ignored."""
         self._finished = True
         bar = self.query_one(ProgressBar)
-        bar.update(progress=100 if ok else bar.progress)
+        if ok:
+            bar.update(progress=100)
         self.add_class("-done" if ok else "-failed")
         self.set_detail(message)
+
+        # A brief highlight to catch the eye, then settle back. One shot --
+        # nothing here keeps animating.
+        self.add_class("-just-finished")
+        self.set_timer(
+            HIGHLIGHT_SECONDS,
+            lambda: self.remove_class("-just-finished"),
+        )

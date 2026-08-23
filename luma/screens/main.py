@@ -7,7 +7,9 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, Input, Static
+from textual.widgets import (
+    Button, Footer, Header, Input, LoadingIndicator, Static,
+)
 
 from ..engine import download as dl
 from ..engine.callbacks import EngineCallbacks
@@ -53,11 +55,19 @@ class MainScreen(Screen):
                 yield Button("Download", variant="primary", id="download-btn")
             yield Static("", id="plan-panel")
             yield VerticalScroll(id="downloads")
-            yield Static("Ready.", id="status-line")
+            with Horizontal(id="status-row"):
+                yield LoadingIndicator(id="busy")
+                yield Static("Ready.", id="status-line")
         yield Footer()
 
     def on_mount(self) -> None:
+        # The spinner only exists while Luma is actually busy.
+        self.query_one("#busy", LoadingIndicator).display = False
         self.query_one("#url-input", Input).focus()
+
+    def _set_busy(self, busy):
+        """Show or hide the spinner. Nothing animates when idle."""
+        self.query_one("#busy", LoadingIndicator).display = bool(busy)
 
     # -- settings the download runs with ---------------------------------
     def _settings(self):
@@ -125,6 +135,7 @@ class MainScreen(Screen):
         self._clear_rows()
         self._download_active = True
         self.query_one("#download-btn", Button).disabled = True
+        self._set_busy(True)
         dl.reset_cancel()
         self._download_worker(urls)
 
@@ -161,6 +172,7 @@ class MainScreen(Screen):
 
     def _finished(self, ok_count, fail_count, output_dir):
         self._download_active = False
+        self._set_busy(False)
         self.query_one("#download-btn", Button).disabled = False
         if fail_count and not ok_count:
             self._set_status("Nothing downloaded. See the messages above.")
@@ -238,6 +250,9 @@ class MainScreen(Screen):
             ui(self._set_plan, "   ".join(describe_plan(plan)))
             ui(self._set_status,
                f"Downloading {total} video{'s' if total > 1 else ''}...")
+            # The progress bars take over as the sign of life from here, so
+            # the spinner stops rather than adding motion beside them.
+            ui(self._set_busy, False)
 
             results = dl.run_downloads(
                 tools, videos, plan, cfg["output_dir"], cfg["quality"],

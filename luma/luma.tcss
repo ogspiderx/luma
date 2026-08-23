@@ -1,4 +1,20 @@
-/* Luma - minimal baseline styling. Refined in a later pass. */
+/* ------------------------------------------------------------------ *
+ *  Luma
+ *
+ *  Minimal by intent: space and hierarchy do the work, not decoration.
+ *  Every colour comes from the active theme, so the app follows whichever
+ *  appearance the user picked instead of fighting it.
+ *
+ *  Motion is limited to three places, each tied to something the user is
+ *  waiting on: the spinner while preparing, the progress bar filling, and
+ *  a brief highlight when a download lands. Idle screens do not move.
+ * ------------------------------------------------------------------ */
+
+Screen {
+    background: $background;
+}
+
+/* -- main screen -- */
 
 #main-body {
     padding: 1 2;
@@ -21,21 +37,102 @@
 
 #download-btn {
     margin-left: 2;
+    min-width: 14;
 }
 
 #plan-panel {
     color: $text-muted;
     height: auto;
+    padding: 0 1;
 }
+
 
 #downloads {
     height: 1fr;
+    padding: 1 0;
+}
+
+#status-row {
+    height: auto;
+    align-vertical: middle;
+}
+
+/* The spinner is only mounted-visible while work is in flight. */
+#busy {
+    width: 4;
+    height: 1;
+    color: $accent;
 }
 
 #status-line {
     color: $text-muted;
     height: auto;
+    width: 1fr;
 }
+
+/* -- a download in progress -- */
+
+DownloadRow {
+    height: auto;
+    margin-bottom: 1;
+    padding: 0 1;
+    border-left: outer $panel;
+}
+
+/* The inner container must size to its contents. Left to its default it
+   claims all remaining space, and a single row then fills the whole pane. */
+DownloadRow > Vertical {
+    height: auto;
+}
+
+DownloadRow .row-title {
+    text-overflow: ellipsis;
+}
+
+DownloadRow .row-detail {
+    color: $text-muted;
+}
+
+DownloadRow ProgressBar {
+    width: 100%;
+    height: 1;
+}
+
+DownloadRow Bar > .bar--bar {
+    color: $accent;
+}
+
+DownloadRow.-done {
+    border-left: outer $success;
+}
+
+DownloadRow.-done .row-title {
+    color: $success;
+}
+
+DownloadRow.-done Bar > .bar--bar {
+    color: $success;
+}
+
+DownloadRow.-failed {
+    border-left: outer $error;
+}
+
+DownloadRow.-failed .row-title {
+    color: $error;
+}
+
+DownloadRow.-failed .row-detail {
+    color: $error;
+}
+
+/* One-shot highlight as a row lands. Removed on a timer, so nothing
+   continues to animate afterwards. */
+DownloadRow.-just-finished {
+    background: $boost;
+}
+
+/* -- shared screen furniture -- */
 
 #settings-body,
 #history-body {
@@ -50,28 +147,7 @@
     height: auto;
 }
 
-/* -- history -- */
-
-#history-tabs {
-    height: 1fr;
-}
-
-#history-table,
-#errors-table {
-    height: 1fr;
-}
-
-.empty-note {
-    color: $text-muted;
-    padding: 1 2;
-    height: auto;
-}
-
-#history-back {
-    margin: 0 2 1 2;
-}
-
-/* -- settings fields -- */
+/* -- settings -- */
 
 .setting {
     height: auto;
@@ -97,6 +173,7 @@
     height: auto;
 }
 
+
 Input.-invalid {
     border: tall $error;
 }
@@ -114,4 +191,27 @@ Input.-invalid {
     color: $warning;
     height: auto;
     padding: 0 2;
+}
+
+
+/* -- history -- */
+
+#history-tabs {
+    height: 1fr;
+}
+
+#history-table,
+#errors-table {
+    height: 1fr;
+}
+
+.empty-note {
+    color: $text-muted;
+    padding: 1 2;
+    height: auto;
+}
+
+
+#history-back {
+    margin: 0 2 1 2;
 }
