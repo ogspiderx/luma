@@ -21,6 +21,7 @@ from ..engine.inputs import (
 from ..engine.plan import compute_plan, default_plan, describe_plan
 from ..engine.speedtest import measure_bandwidth
 from ..engine.tools import ensure_tools
+from ..config import resolve_output_dir
 from ..locations import DEFAULT_DOWNLOAD_DIR
 from ..widgets.download_row import DownloadRow
 
@@ -59,15 +60,20 @@ class MainScreen(Screen):
 
     # -- settings the download runs with ---------------------------------
     def _settings(self):
-        """Where downloads go and how they run.
+        """Where downloads go and how they run, taken from the user's settings.
 
-        Reads from the app's config when one is available, falling back to
-        built-in defaults, so this screen keeps working before the settings
-        system exists.
+        The download folder is resolved through the settings layer so the
+        folder-grouping choice is honoured and the location is checked before
+        anything is written to it.
         """
         config = getattr(self.app, "config", None) or {}
+        try:
+            output_dir = resolve_output_dir(config)
+        except LumaError:
+            # Fall back to the built-in folder rather than refusing to run.
+            output_dir = DEFAULT_DOWNLOAD_DIR
         return {
-            "output_dir": config.get("output_dir") or DEFAULT_DOWNLOAD_DIR,
+            "output_dir": output_dir,
             "quality": config.get("quality") or DEFAULT_QUALITY,
             "max_parallel": config.get("max_parallel") or DEFAULT_MAX_PARALLEL,
             "conns_per_file": config.get("conns_per_file"),
