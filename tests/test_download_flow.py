@@ -104,6 +104,21 @@ async def wait_for_idle(app, timeout=45):
     return False
 
 
+async def wait_until(predicate, timeout=15):
+    """Wait for a condition rather than assuming it is already true.
+
+    The download runs on a worker thread and reaches the interface through
+    call_from_thread, so anything it produces arrives shortly after the click,
+    not during it. Polling keeps these checks from racing under load.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        await asyncio.sleep(0.05)
+    return predicate()
+
+
 async def test_single_download():
     print("\n[single download]")
     with tempfile.TemporaryDirectory() as td:
@@ -122,12 +137,16 @@ async def test_single_download():
             }
             box = screen.query_one("#url-input", Input)
             box.value = "https://youtu.be/abc"
-            await pilot.click("#download-btn")
-            await pilot.pause()
 
+            # Check the "busy" state without racing the worker: _start() runs
+            # to completion synchronously, so inspecting before yielding
+            # control catches the state the worker cannot yet have cleared.
+            screen._start()
+            check("the download starts", screen._download_active)
             check("download button disables while running",
                   screen.query_one("#download-btn", Button).disabled)
             check("link box was cleared", box.value == "")
+            await pilot.pause()
 
             # The UI must keep responding while the blocking engine runs.
             await asyncio.sleep(0.6)
@@ -139,8 +158,10 @@ async def test_single_download():
                 responsive = False
             check("interface stays responsive during the download", responsive)
 
-            rows = screen.query(DownloadRow)
-            check("a progress row appeared", len(rows) == 1, str(len(rows)))
+            appeared = await wait_until(
+                lambda: len(screen.query(DownloadRow)) == 1)
+            check("a progress row appeared", appeared,
+                  str(len(screen.query(DownloadRow))))
 
             finished = await wait_for_idle(app)
             check("download finished", finished)
@@ -186,8 +207,10 @@ async def test_multiple_downloads():
             await pilot.click("#download-btn")
             await pilot.pause()
 
-            rows = screen.query(DownloadRow)
-            check("one row per video", len(rows) == 3, str(len(rows)))
+            appeared = await wait_until(
+                lambda: len(screen.query(DownloadRow)) == 3)
+            check("one row per video", appeared,
+                  str(len(screen.query(DownloadRow))))
 
             finished = await wait_for_idle(app)
             check("all finished", finished)
