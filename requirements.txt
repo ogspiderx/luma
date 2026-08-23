@@ -1,0 +1,10 @@
+# What Luma needs to run.
+#
+# run.bat installs these automatically the first time you start Luma, so
+# there is normally nothing for you to do here.
+#
+# The download tools themselves (the downloader, the speed booster and the
+# video merger) are not listed: Luma fetches those on its own first run and
+# keeps them in its own bin folder.
+
+textual==8.2.8
