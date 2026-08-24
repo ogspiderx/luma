@@ -36,9 +36,7 @@ def main():
         print("=" * 62)
         print(name)
         print("=" * 62)
-        for line in output.splitlines():
-            if "FAIL" in line or "Error" in line:
-                print(line)
+        print(output.rstrip() or "(no output at all)")
     print(f"\n{len(failed)} of {len(names)} suites failed")
     return 1
 

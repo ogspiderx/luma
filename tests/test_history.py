@@ -6,6 +6,8 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import support
+
 from luma.history import (
     ERRORS_CAP, human_size, human_when,
     record_failure, record_results, record_success,
@@ -120,12 +122,13 @@ def test_records_are_capped():
 
 def test_recording_never_raises():
     print("\n[recording never breaks a download]")
-    unwritable = "/etc/hostname/sub/history.json"
-    check("an unwritable location returns False instead of raising",
-          record_success("https://youtu.be/x", "/tmp/a.mp4", "480",
-                         unwritable) is False)
-    check("same for failures",
-          record_failure("https://youtu.be/x", "nope", unwritable) is False)
+    with tempfile.TemporaryDirectory() as td:
+        unwritable = support.an_unwritable_path(td)
+        check("an unwritable location returns False instead of raising",
+              record_success("https://youtu.be/x", "a.mp4", "480",
+                             unwritable) is False)
+        check("same for failures",
+              record_failure("https://youtu.be/x", "nope", unwritable) is False)
 
     with tempfile.TemporaryDirectory() as td:
         hist = os.path.join(td, "history.json")

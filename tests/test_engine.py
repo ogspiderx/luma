@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import os
-import stat
 import sys
 import tempfile
 import textwrap
@@ -8,6 +7,8 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import support
 
 from luma.engine import download as dl
 from luma.engine.callbacks import EngineCallbacks
@@ -30,7 +31,6 @@ def check(label, condition, detail=""):
 
 
 FAKE_SCRIPT = textwrap.dedent('''
-    #!@PYTHON@
     import os, sys, time
     mode = os.environ.get("LUMA_FAKE_MODE", "ok")
     out = os.environ.get("LUMA_FAKE_OUT", "/tmp/Fake Video [abc123].mp4")
@@ -54,12 +54,8 @@ FAKE_SCRIPT = textwrap.dedent('''
 ''')
 
 
-def make_fake(tmpdir, name="fake_dl.py"):
-    path = os.path.join(tmpdir, name)
-    with open(path, "w") as fh:
-        fh.write(FAKE_SCRIPT.replace("@PYTHON@", sys.executable).lstrip())
-    os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC | stat.S_IREAD)
-    return path
+def make_fake(tmpdir, name="fake_dl"):
+    return support.write_stub_tool(tmpdir, FAKE_SCRIPT.lstrip(), name=name)
 
 
 def fake_tools(fake_path):
@@ -170,19 +166,26 @@ def test_url_validation():
 
 def test_path_safety():
     print("\n[path safety]")
-    base = "/tmp/luma_base"
-    for attempt in ["../../etc", "..", "/etc/passwd", "a/../../b"]:
-        got = safe_join(base, attempt)
-        check(f"contains {attempt!r}",
-              got == base or got.startswith(base + os.sep), got)
-    for bad in ["/etc", "/etc/cron.d", ""]:
+    with tempfile.TemporaryDirectory() as td:
+        base = os.path.join(td, "luma_base")
+        os.makedirs(base)
+        for attempt in ["../../etc", "..", "/etc/passwd", "a/../../b"]:
+            got = safe_join(base, attempt)
+            check(f"contains {attempt!r}",
+                  got == base or got.startswith(base + os.sep), got)
+
+        normal = os.path.join(td, "luma_out")
+        os.makedirs(normal)
+        check("accepts a normal folder",
+              validate_output_dir(normal) == normal)
+
+    for bad in [support.a_forbidden_directory(),
+                support.a_forbidden_subdirectory(), ""]:
         try:
             validate_output_dir(bad)
             check(f"rejects system dir {bad!r}", False, "accepted")
         except UnsafePathError:
             check(f"rejects system dir {bad!r}", True)
-    check("accepts a normal folder",
-          validate_output_dir("/tmp/luma_out") == "/tmp/luma_out")
 
 
 def test_command_building():
@@ -291,14 +294,14 @@ def test_streaming_and_retry():
 def test_cancellation():
     print("\n[cancellation - no orphaned processes]")
     with tempfile.TemporaryDirectory() as td:
-        fake = make_fake(td)
+        cmd = support.write_stub_script(td, FAKE_SCRIPT.lstrip(), "fake_dl")
         os.environ["LUMA_FAKE_MODE"] = "hang"
         dl.reset_cancel()
         rec, cb = collector()
         result = {}
 
         def run():
-            result["rc"] = dl._stream_download([fake], "1/1", cb)
+            result["rc"] = dl._stream_download(cmd, "1/1", cb)
 
         th = threading.Thread(target=run, daemon=True)
         th.start()

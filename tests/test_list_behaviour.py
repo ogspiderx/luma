@@ -238,19 +238,26 @@ async def test_long_list_scrolls():
               holder.max_scroll_y > 0, str(holder.max_scroll_y))
         check("the list can take focus for scrolling", holder.can_focus)
 
+        async def wait_for_scroll_past(threshold, rising, timeout=3.0):
+            deadline = asyncio.get_event_loop().time() + timeout
+            while asyncio.get_event_loop().time() < deadline:
+                y = holder.scroll_offset.y
+                if (y > threshold) if rising else (y < threshold):
+                    return y
+                await pilot.pause()
+                await asyncio.sleep(0.05)
+            return holder.scroll_offset.y
+
         start = holder.scroll_offset.y
         await pilot.press("pagedown")
-        await pilot.pause()
-        await asyncio.sleep(0.4)
-        scrolled = holder.scroll_offset.y
+        scrolled = await wait_for_scroll_past(start, rising=True)
         check("page down moves down the list", scrolled > start,
               f"{start} -> {scrolled}")
 
         await pilot.press("pageup")
-        await pilot.pause()
-        await asyncio.sleep(0.4)
-        check("page up moves back", holder.scroll_offset.y < scrolled,
-              f"{scrolled} -> {holder.scroll_offset.y}")
+        ended = await wait_for_scroll_past(scrolled, rising=False)
+        check("page up moves back", ended < scrolled,
+              f"{scrolled} -> {ended}")
 
 
 def test_unmeasurable_speed_is_not_shown():

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 import asyncio
 import os
-import stat
 import sys
 import tempfile
 import textwrap
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import support
 
 from textual.widgets import Button, Input, Static
 
@@ -35,7 +36,6 @@ def text_of(widget):
 
 
 FAKE = textwrap.dedent('''
-    #!@PYTHON@
     import os, sys, time
     mode = os.environ.get("LUMA_FAKE_MODE", "ok")
     out = os.environ.get("LUMA_FAKE_OUT", "/tmp/Fake [dQw4w9WgXcQ].mp4")
@@ -54,11 +54,7 @@ FAKE = textwrap.dedent('''
 
 
 def make_fake(tmpdir):
-    path = os.path.join(tmpdir, "fake_dl.py")
-    with open(path, "w") as fh:
-        fh.write(FAKE.replace("@PYTHON@", sys.executable).lstrip())
-    os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC | stat.S_IREAD)
-    return path
+    return support.write_stub_tool(tmpdir, FAKE.lstrip(), name="fake_dl")
 
 
 def patch_engine(fake_path, tmpdir):

@@ -6,6 +6,8 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import support
+
 from luma.config import (
     DEFAULTS, MAX_PARALLEL_LIMIT, load_config,
     normalize, resolve_output_dir, save_config,
@@ -120,7 +122,8 @@ def test_defaults_and_clamping():
 
 def test_dangerous_paths_rejected():
     print("\n[dangerous folders rejected]")
-    for bad in ["/etc", "/etc/cron.d", "", "   "]:
+    for bad in [support.a_forbidden_directory(),
+                support.a_forbidden_subdirectory(), "", "   "]:
         cfg = normalize({"output_dir": bad})
         check(f"{bad!r} falls back to the safe default",
               cfg["output_dir"] == DEFAULTS["output_dir"], cfg["output_dir"])

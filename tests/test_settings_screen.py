@@ -6,6 +6,8 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import support
+
 from textual.widgets import Button, Input, Select, Static, Switch
 
 from luma.app import LumaApp
@@ -110,7 +112,8 @@ async def test_bad_input_is_refused():
         async with app.run_test() as pilot:
             screen = await open_settings(pilot, app)
 
-            screen.query_one("#set-folder", Input).value = "/etc"
+            screen.query_one("#set-folder", Input).value = (
+                support.a_forbidden_directory())
             await pilot.pause()
             await pilot.click("#settings-save")
             await pilot.pause()

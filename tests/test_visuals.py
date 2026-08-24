@@ -6,13 +6,15 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import support
+
 from textual.widgets import (
     Button, Input, LoadingIndicator, ProgressBar, Static,
 )
 
 from luma.app import LumaApp
 from luma.widgets.download_row import (
-    HIGHLIGHT_SECONDS, DownloadRow,
+    FILL_SECONDS, HIGHLIGHT_SECONDS, DownloadRow,
 )
 
 _failures = []
@@ -59,13 +61,27 @@ async def test_progress_bar_glides():
 
         row.set_progress({"percent": 90.0, "total": "10MB", "speed": "1MB/s",
                           "eta": "1s", "connections": 16})
-        await asyncio.sleep(0.12)
-        midway = float(bar.progress)
-        await asyncio.sleep(0.45)
+
+        midway = 0.0
+        caught_mid_flight = False
+        deadline = asyncio.get_event_loop().time() + FILL_SECONDS
+        while asyncio.get_event_loop().time() < deadline:
+            value = float(bar.progress)
+            if 0.0 < value < 90.0:
+                midway = value
+                caught_mid_flight = True
+                break
+            await asyncio.sleep(0.02)
+
+        deadline = asyncio.get_event_loop().time() + 1.0
         settled = float(bar.progress)
+        while (abs(settled - 90.0) >= 0.5
+              and asyncio.get_event_loop().time() < deadline):
+            await asyncio.sleep(0.02)
+            settled = float(bar.progress)
 
         check("partway through the move mid-animation",
-              0.0 < midway < 90.0, f"{midway:.1f}")
+              caught_mid_flight, f"{midway:.1f}")
         check("arrives exactly on the real value",
               abs(settled - 90.0) < 0.5, f"{settled:.1f}")
 
@@ -219,7 +235,8 @@ async def test_feedback_is_actually_on_screen():
         await pilot.press("ctrl+s")
         await pilot.pause()
         settings = app.screen
-        settings.query_one("#set-folder", Input).value = "/etc"
+        settings.query_one("#set-folder", Input).value = (
+            support.a_forbidden_directory())
         await pilot.pause()
         settings._save()
         await pilot.pause()
