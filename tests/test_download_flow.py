@@ -13,6 +13,7 @@ import support
 from textual.widgets import Button, Input, Static
 
 from luma.app import LumaApp
+from luma.engine import download as dl
 from luma.screens import main as main_mod
 from luma.widgets.download_row import DownloadRow
 
@@ -53,16 +54,16 @@ FAKE = textwrap.dedent('''
 ''')
 
 
-def make_fake(tmpdir):
-    return support.write_stub_tool(tmpdir, FAKE.lstrip(), name="fake_dl")
+def fake_downloader(tmpdir):
+    return support.fake_downloader(dl, tmpdir, FAKE.lstrip())
 
 
-def patch_engine(fake_path, tmpdir):
+def patch_engine(tmpdir):
     from luma import history as history_mod
 
     main_mod.ensure_tools = lambda cb=None: {
-        "yt-dlp": fake_path, "aria2c": "aria2c",
-        "ffmpeg": "/usr/bin/ffmpeg", "ffprobe": "/usr/bin/ffprobe",
+        "yt-dlp": "yt-dlp", "aria2c": "aria2c",
+        "ffmpeg": "ffmpeg", "ffprobe": "ffprobe",
     }
     main_mod.measure_bandwidth = lambda cb=None: (50.0, 100.0, 25.0)
     main_mod.expand_playlists = lambda ytdlp, urls, cb=None: list(urls)
@@ -95,9 +96,8 @@ async def wait_until(predicate, timeout=15):
 
 async def test_single_download():
     print("\n[single download]")
-    with tempfile.TemporaryDirectory() as td:
-        fake = make_fake(td)
-        patch_engine(fake, td)
+    with tempfile.TemporaryDirectory() as td, fake_downloader(td):
+        patch_engine(td)
         os.environ["LUMA_FAKE_MODE"] = "ok"
         os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake Video [dQw4w9WgXcQ].mp4")
 
@@ -164,9 +164,8 @@ async def test_single_download():
 
 async def test_multiple_downloads():
     print("\n[several at once]")
-    with tempfile.TemporaryDirectory() as td:
-        fake = make_fake(td)
-        patch_engine(fake, td)
+    with tempfile.TemporaryDirectory() as td, fake_downloader(td):
+        patch_engine(td)
         os.environ["LUMA_FAKE_MODE"] = "ok"
         os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake [CdbHAzNB1n0].mp4")
 
@@ -198,9 +197,8 @@ async def test_multiple_downloads():
 
 async def test_failure_is_explained():
     print("\n[failure handling]")
-    with tempfile.TemporaryDirectory() as td:
-        fake = make_fake(td)
-        patch_engine(fake, td)
+    with tempfile.TemporaryDirectory() as td, fake_downloader(td):
+        patch_engine(td)
         os.environ["LUMA_FAKE_MODE"] = "fail"
         os.environ["LUMA_FAKE_OUT"] = os.path.join(td, "Fake [CdbHAzNB1n0].mp4")
 
@@ -254,9 +252,8 @@ async def test_results_are_recorded():
     print("\n[downloads are recorded]")
     from luma.storage import read_list
 
-    with tempfile.TemporaryDirectory() as td:
-        fake = make_fake(td)
-        patch_engine(fake, td)
+    with tempfile.TemporaryDirectory() as td, fake_downloader(td):
+        patch_engine(td)
         hist = os.path.join(td, "history.json")
         errs = os.path.join(td, "errors.json")
 

@@ -155,7 +155,8 @@ def test_output_folder_resolution():
         check("the folder is created", os.path.isdir(sneaky))
 
         try:
-            resolve_output_dir({"output_dir": "/etc", "folders": "none"})
+            resolve_output_dir({"output_dir": support.a_forbidden_directory(),
+                                "folders": "none"})
             check("a system folder is refused", False, "it was allowed")
         except UnsafePathError:
             check("a system folder is refused", True)

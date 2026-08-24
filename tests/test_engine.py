@@ -54,10 +54,6 @@ FAKE_SCRIPT = textwrap.dedent('''
 ''')
 
 
-def make_fake(tmpdir, name="fake_dl"):
-    return support.write_stub_tool(tmpdir, FAKE_SCRIPT.lstrip(), name=name)
-
-
 def fake_tools(fake_path):
     return {"yt-dlp": fake_path, "aria2c": "aria2c",
             "ffmpeg": "/usr/bin/ffmpeg", "ffprobe": "/usr/bin/ffprobe"}
@@ -209,9 +205,9 @@ def test_command_building():
 
 def test_streaming_and_retry():
     print("\n[streaming, retry, isolation]")
-    with tempfile.TemporaryDirectory() as td:
-        fake = make_fake(td)
-        tools = fake_tools(fake)
+    with tempfile.TemporaryDirectory() as td, \
+            support.fake_downloader(dl, td, FAKE_SCRIPT.lstrip()):
+        tools = fake_tools("yt-dlp")
         plan = compute_plan(5, 5, 40, 1, 8)
         target = os.path.join(td, "Fake Video [abc123].mp4")
         os.environ["LUMA_FAKE_OUT"] = target

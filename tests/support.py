@@ -1,5 +1,4 @@
 import os
-import stat
 import sys
 
 _WINDOWS_ROOT_VARS = (
@@ -49,18 +48,39 @@ def write_stub_script(directory, python_body, name="stub_script"):
     return [sys.executable, script]
 
 
-def write_stub_tool(directory, python_body, name="stub_tool"):
-    if os.name == "nt":
-        script = os.path.join(directory, name + ".py")
-        with open(script, "w") as fh:
-            fh.write(python_body)
-        launcher = os.path.join(directory, name + ".bat")
-        with open(launcher, "w") as fh:
-            fh.write(f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n')
-        return launcher
+class fake_downloader:
+    """Swap the real download tool for a Python stub, for the duration.
 
-    script = os.path.join(directory, name + ".py")
-    with open(script, "w") as fh:
-        fh.write(f"#!{sys.executable}\n" + python_body)
-    os.chmod(script, os.stat(script).st_mode | stat.S_IEXEC | stat.S_IREAD)
-    return script
+    The stub replaces argv[0] of whatever build_cmd produces, so every
+    other argument -- and the whole path below build_cmd: streaming,
+    parsing, retries, cancellation, the callbacks -- is exercised for
+    real. build_cmd's own output is asserted directly, without running
+    anything, by test_command_building.
+
+    Replacing argv[0] rather than pointing the tool at an executable
+    script is deliberate. A tool path has to be launchable on its own,
+    and on Windows that means a .bat, which CreateProcess runs through
+    cmd.exe. cmd re-parses the command line, and build_cmd's format
+    argument (ba+bv*[height<=480]/...) carries a `<` with no spaces
+    around it, so it arrives unquoted and cmd reads it as input
+    redirection. Going through sys.executable keeps every argument away
+    from a shell on both platforms.
+    """
+
+    def __init__(self, download_module, directory, python_body,
+                 name="fake_dl"):
+        self._module = download_module
+        self.command = write_stub_script(directory, python_body, name)
+
+    def __enter__(self):
+        self._real_build_cmd = self._module.build_cmd
+        stub = self.command
+
+        def build_cmd(*args, **kwargs):
+            return stub + self._real_build_cmd(*args, **kwargs)[1:]
+
+        self._module.build_cmd = build_cmd
+        return self
+
+    def __exit__(self, *_exc):
+        self._module.build_cmd = self._real_build_cmd
