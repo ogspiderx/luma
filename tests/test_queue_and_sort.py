@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""
-Checks for the download queue, the sorting control, and the cross on each row.
-
-    python tests/test_queue_and_sort.py
-"""
-
 import asyncio
 import os
 import sys
@@ -12,14 +6,14 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from textual.containers import VerticalScroll                 # noqa: E402
-from textual.widgets import Button, Input, Select, Static      # noqa: E402
+from textual.containers import VerticalScroll
+from textual.widgets import Button, Input, Select, Static
 
-from luma.app import LumaApp                                   # noqa: E402
-from luma.engine import download as dl                         # noqa: E402
-from luma.engine.download import _stream_kind, build_cmd       # noqa: E402
-from luma.engine.plan import compute_plan                      # noqa: E402
-from luma.widgets.download_row import DownloadRow              # noqa: E402
+from luma.app import LumaApp
+from luma.engine import download as dl
+from luma.engine.download import _stream_kind, build_cmd
+from luma.engine.plan import compute_plan
+from luma.widgets.download_row import DownloadRow
 
 _failures = []
 
@@ -48,13 +42,9 @@ def rows_of(screen):
 def notifications(app):
     try:
         return [str(n.message) for n in app._notifications]
-    except Exception:                                          # noqa: BLE001
+    except Exception:
         return []
 
-
-# --------------------------------------------------------------------------- #
-#  sound before picture                                                       #
-# --------------------------------------------------------------------------- #
 
 def test_sound_is_fetched_first():
     print("\n[sound is fetched before picture]")
@@ -111,10 +101,6 @@ async def test_row_shows_which_part():
               "30.0 MB of 56.0 MB" in detail, detail)
 
 
-# --------------------------------------------------------------------------- #
-#  the queue                                                                  #
-# --------------------------------------------------------------------------- #
-
 async def test_more_can_be_added_while_running():
     print("\n[more can be added while something is running]")
     with tempfile.TemporaryDirectory() as td:
@@ -122,7 +108,6 @@ async def test_more_can_be_added_while_running():
                       auto_prepare=False)
         async with app.run_test() as pilot:
             screen = app.screen
-            # Hold the worker back so the queue can be inspected.
             screen._queue_worker = lambda: None
 
             screen.query_one("#url-input", Input).value = "https://youtu.be/aaa"
@@ -162,8 +147,6 @@ async def test_queue_is_worked_through_one_at_a_time():
             screen = app.screen
             taken = []
 
-            # Stand in for the engine: record each batch and report it done
-            # through the callbacks, exactly as the real one does.
             def fake_batch_run(*args, **kwargs):
                 tags = list(kwargs.get("tags") or [])
                 urls = list(kwargs.get("urls", args[1]))
@@ -216,10 +199,6 @@ async def test_queue_is_worked_through_one_at_a_time():
             check("everything is marked finished",
                   all(r.finished for r in rows_of(screen)))
 
-
-# --------------------------------------------------------------------------- #
-#  removing a row                                                             #
-# --------------------------------------------------------------------------- #
 
 async def test_cross_removes_a_waiting_row():
     print("\n[the cross takes a waiting row out of the queue]")
@@ -283,12 +262,7 @@ async def test_cross_stops_a_running_row():
         dl.reset_cancel()
 
 
-# --------------------------------------------------------------------------- #
-#  sorting                                                                    #
-# --------------------------------------------------------------------------- #
-
 async def build_list(screen, pilot):
-    """Three rows in a known state: done, unfinished, failed."""
     holder = screen.query_one("#downloads", VerticalScroll)
     spec = [("1", "Banana", "done", 100.0),
             ("2", "Apple", "running", 40.0),
@@ -391,14 +365,13 @@ async def test_sort_control_is_wired():
 
 
 async def test_queue_positions_stay_correct():
-    """Positions must follow the list, not the order things were added."""
     print("\n[queue positions keep up with the list]")
     with tempfile.TemporaryDirectory() as td:
         app = LumaApp(config_path=os.path.join(td, "config.json"),
                       auto_prepare=False)
         async with app.run_test() as pilot:
             screen = app.screen
-            screen._queue_worker = lambda: None      # hold the queue still
+            screen._queue_worker = lambda: None
 
             def detail(row):
                 return text_of(row.query_one(".row-detail", Static))
@@ -417,7 +390,6 @@ async def test_queue_positions_stay_correct():
                   "2" in positions()[1] and "3" in positions()[2],
                   str(positions()))
 
-            # Adding more must not disturb the ones already waiting.
             screen.query_one("#url-input", Input).value = "https://youtu.be/ddd"
             screen._start()
             await pilot.pause()
@@ -430,7 +402,6 @@ async def test_queue_positions_stay_correct():
             note = text_of(screen.query_one("#queue-note", Static))
             check("the count says four are waiting", "4 waiting" in note, note)
 
-            # Removing the first must move everyone up.
             first = rows_of(screen)[0]
             first.post_message(DownloadRow.RemoveRequested(first))
             await pilot.pause()
@@ -447,7 +418,6 @@ async def test_queue_positions_stay_correct():
             note = text_of(screen.query_one("#queue-note", Static))
             check("the count came down to three", "3 waiting" in note, note)
 
-            # Removing from the middle must renumber what follows.
             middle = rows_of(screen)[1]
             middle.post_message(DownloadRow.RemoveRequested(middle))
             await pilot.pause()
@@ -465,7 +435,6 @@ async def test_queue_positions_stay_correct():
 
 
 async def test_positions_update_when_clearing():
-    """Clearing finished rows must not leave the waiting ones mislabelled."""
     print("\n[clearing does not strand the numbering]")
     with tempfile.TemporaryDirectory() as td:
         app = LumaApp(config_path=os.path.join(td, "config.json"),
@@ -479,7 +448,6 @@ async def test_positions_update_when_clearing():
             screen._start()
             await pilot.pause()
 
-            # A finished row alongside the waiting ones.
             holder = screen.query_one("#downloads", VerticalScroll)
             done = DownloadRow("99", "https://youtu.be/zzz")
             done.sequence = 0

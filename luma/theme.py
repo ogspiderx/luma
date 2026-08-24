@@ -1,18 +1,9 @@
-"""
-Luma's two themes, built from the brand palette.
-
-There is no colour decision in here -- every value comes from `branding.py`,
-so re-skinning the app never means editing this file. What this module does
-is translate a Luma palette into the names Textual expects.
-"""
-
 from textual.theme import Theme
 
 from .branding import DAY, NIGHT
 
 
 def _build(name, palette, dark):
-    """Turn a Luma palette into a theme Textual can apply."""
     return Theme(
         name=name,
         dark=dark,
@@ -45,18 +36,14 @@ LUMA_DAY = _build("luma-day", DAY, dark=False)
 
 THEMES = (LUMA_NIGHT, LUMA_DAY)
 
-#: What a fresh install opens with.
 DEFAULT_THEME = LUMA_NIGHT.name
 
-#: The only themes Luma offers. Anything saved that is not one of these falls
-#: back to the default rather than borrowing a palette from elsewhere.
 THEME_NAMES = tuple(theme.name for theme in THEMES)
 
 
 def register(app):
-    """Make Luma's themes available to the app. Never raises."""
     for theme in THEMES:
         try:
             app.register_theme(theme)
-        except Exception:                              # noqa: BLE001
+        except Exception:
             pass

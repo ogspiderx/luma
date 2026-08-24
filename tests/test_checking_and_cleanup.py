@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""
-Checks that looking links up does not hold everything else up, and that
-half-finished files are cleared away afterwards.
-
-    python tests/test_checking_and_cleanup.py
-"""
-
 import asyncio
 import os
 import sys
@@ -14,10 +7,10 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from luma.app import LumaApp                                     # noqa: E402
-from luma.engine import download as dl                           # noqa: E402
-from luma.screens import main as main_mod                        # noqa: E402
-from luma.widgets.download_row import DownloadRow, QualityChip  # noqa: E402
+from luma.app import LumaApp
+from luma.engine import download as dl
+from luma.screens import main as main_mod
+from luma.widgets.download_row import QualityChip
 
 _failures = []
 
@@ -44,7 +37,6 @@ def link(n):
 
 
 async def settled(screen, pilot, timeout=8.0):
-    """Wait until every lookup has come back."""
     deadline = time.monotonic() + timeout
     while screen._checking and time.monotonic() < deadline:
         await pilot.pause()
@@ -53,7 +45,6 @@ async def settled(screen, pilot, timeout=8.0):
 
 
 def fake_lookup(delay=0.0, choices=None, title="A Test Video"):
-    """Stand in for the real lookup, which needs the network."""
     def lookup(_ytdlp, _url, *args, **kwargs):
         if delay:
             time.sleep(delay)
@@ -62,8 +53,6 @@ def fake_lookup(delay=0.0, choices=None, title="A Test Video"):
 
 
 class patched:
-    """Swap the lookup out for the duration of a block."""
-
     def __init__(self, lookup):
         self._lookup = lookup
 
@@ -83,17 +72,8 @@ async def prepared_app(td):
 
 
 def configure(app, **values):
-    """Change settings on a running app.
-
-    Must be done after it has started: the app loads its config on mount,
-    so anything set beforehand is overwritten.
-    """
     app.config.update(values)
 
-
-# --------------------------------------------------------------------------- #
-#  the links show up before anything is looked up                             #
-# --------------------------------------------------------------------------- #
 
 async def test_rows_appear_straight_away():
     print("\n[the links are listed at once]")
@@ -105,8 +85,6 @@ async def test_rows_appear_straight_away():
             with patched(fake_lookup(delay=0.4)):
                 urls = [link(i) for i in range(3)]
                 screen._begin_checks(urls)
-                # No pause: this is the state the moment the paste is dealt
-                # with, before any lookup has had a chance to answer.
                 check("every link is in the list immediately",
                       len(screen._rows) == 3, str(len(screen._rows)))
                 check("none of them is on the download queue yet",
@@ -135,7 +113,6 @@ async def test_more_can_be_added_while_checking():
                 check("the first pair is being checked",
                       len(screen._checking) == 2, str(screen._checking))
 
-                # The box still works: paste again without waiting.
                 screen._begin_checks([link(3)])
                 check("a third can be added mid-check",
                       len(screen._rows) == 3, str(len(screen._rows)))
@@ -171,10 +148,6 @@ async def test_the_setting_turns_checking_on():
                       len(screen._awaiting) == 1, str(screen._awaiting))
 
 
-# --------------------------------------------------------------------------- #
-#  they are looked up side by side                                            #
-# --------------------------------------------------------------------------- #
-
 async def test_lookups_run_side_by_side():
     print("\n[several links are checked at the same time]")
     with tempfile.TemporaryDirectory() as td:
@@ -184,8 +157,6 @@ async def test_lookups_run_side_by_side():
             screen._queue_worker = lambda: None
             each = 0.3
             count = main_mod.PROBE_AT_ONCE
-            # Empty choices, so each one is queued without a question and the
-            # timing measures the lookups alone.
             with patched(fake_lookup(delay=each, choices=[])):
                 started = time.monotonic()
                 screen._begin_checks([link(i) for i in range(count)])
@@ -202,10 +173,6 @@ async def test_lookups_run_side_by_side():
                   all(entry[2] is None for entry in screen._queue),
                   str(screen._queue))
 
-
-# --------------------------------------------------------------------------- #
-#  being asked, without waiting for the rest                                  #
-# --------------------------------------------------------------------------- #
 
 def chips_of(row):
     return list(row.query(QualityChip))
@@ -265,7 +232,7 @@ async def test_one_answer_can_cover_the_rest():
                       screen.check_action("same_for_all", ()) is True)
 
                 first = screen._rows[sorted(screen._rows, key=int)[0]]
-                await pilot.click(chips_of(first)[1])       # 480p
+                await pilot.click(chips_of(first)[1])
                 await pilot.pause()
                 check("one is answered", len(screen._awaiting) == 4,
                       str(screen._awaiting))
@@ -316,7 +283,7 @@ async def test_skipping_takes_the_row_away():
                 screen._begin_checks([link(1)])
                 await settled(screen, pilot)
                 row = list(screen._rows.values())[0]
-                await pilot.click(chips_of(row)[-1])        # Skip
+                await pilot.click(chips_of(row)[-1])
                 await pilot.pause()
                 check("the row goes with it", screen._rows == {},
                       str(screen._rows))
@@ -374,10 +341,6 @@ async def test_a_row_removed_mid_check_is_forgotten():
                       str(screen._awaiting))
 
 
-# --------------------------------------------------------------------------- #
-#  clearing up half-finished files                                            #
-# --------------------------------------------------------------------------- #
-
 def test_leftovers_are_cleared():
     print("\n[half-finished files are cleared away]")
     with tempfile.TemporaryDirectory() as td:
@@ -385,8 +348,8 @@ def test_leftovers_are_cleared():
             "Song [dQw4w9WgXcQ].f140.m4a.part",
             "Song [dQw4w9WgXcQ].f140.m4a.aria2",
             "Song [dQw4w9WgXcQ].f135.mp4.part-Frag1",
-            "Song [dQw4w9WgXcQ].mp4",                   # the finished file
-            "Other [CdbHAzNB1n0].f135.mp4.part",        # a different video
+            "Song [dQw4w9WgXcQ].mp4",
+            "Other [CdbHAzNB1n0].f135.mp4.part",
         ]
         for name in names:
             open(os.path.join(td, name), "w").close()

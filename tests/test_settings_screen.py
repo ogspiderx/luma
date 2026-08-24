@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""
-Checks for the Settings screen.
-
-The promise being tested is that a normal person can change every setting from
-inside Luma, that bad input is refused rather than saved, and that choices
-survive a restart.
-
-    python tests/test_settings_screen.py
-"""
-
 import asyncio
 import os
 import sys
@@ -16,12 +6,12 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from textual.widgets import Button, Input, Select, Static, Switch  # noqa: E402
+from textual.widgets import Button, Input, Select, Static, Switch
 
-from luma.app import LumaApp                                  # noqa: E402
-from luma.config import DEFAULTS, load_config, save_config     # noqa: E402
-from luma.screens.main import MainScreen                       # noqa: E402
-from luma.screens.settings import SettingsScreen               # noqa: E402
+from luma.app import LumaApp
+from luma.config import DEFAULTS, load_config, save_config
+from luma.screens.main import MainScreen
+from luma.screens.settings import SettingsScreen
 
 _failures = []
 
@@ -99,7 +89,6 @@ async def test_saving_persists():
             check("app config updated in place",
                   app.config["quality"] == "720", str(app.config["quality"]))
 
-        # A fresh app must see the same values -- this is the real test.
         reloaded = load_config(cfg_path)
         check("quality survived a restart", reloaded["quality"] == "720")
         check("folder survived a restart", reloaded["output_dir"] == out)
@@ -121,7 +110,6 @@ async def test_bad_input_is_refused():
         async with app.run_test() as pilot:
             screen = await open_settings(pilot, app)
 
-            # A system folder must be refused.
             screen.query_one("#set-folder", Input).value = "/etc"
             await pilot.pause()
             await pilot.click("#settings-save")
@@ -136,13 +124,10 @@ async def test_bad_input_is_refused():
             check("says nothing was saved", "not saved" in msg.lower()
                   or "nothing was saved" in msg.lower(), msg)
 
-            # Out-of-range numbers must be refused too.
             screen.query_one("#set-folder", Input).value = good
             screen.query_one("#set-parallel", Input).value = "9999"
             screen.query_one("#set-conns", Input).value = "0"
             await pilot.pause()
-            # Space the clicks out: two clicks in the same spot in quick
-            # succession read as a double-click, as they would in any terminal.
             await asyncio.sleep(0.5)
             await pilot.click("#settings-save")
             await pilot.pause()

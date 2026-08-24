@@ -1,35 +1,6 @@
-/* ------------------------------------------------------------------ *
- *  Luma
- *
- *  Light falling in a dark room. The ground stays deep and quiet; the
- *  brand colour is spent only on what is actually happening -- the bar
- *  as it fills, the box under the cursor, the question being asked --
- *  so the eye goes to the work rather than to the furniture.
- *
- *  Every colour comes from the active theme, and every theme is built
- *  from branding.py, so re-skinning the app never means editing this
- *  file.
- *
- *  SPACING SCALE. One scale, three sizes, applied from the outside in.
- *  Screens carry -narrow / -roomy / -short (see widgets/sizing.py), and
- *  only the gutter and the block gap change between them. Nothing sets
- *  a padding for itself; that is what made the old layout look like a
- *  different app at every window size.
- *
- *      gutter     1 / 2 / 4 columns   the margin down each side
- *      block gap  1 line              between one thing and the next
- *      row gap    1 line              between downloads in the list
- *
- *  MOTION. Three places, each tied to something being waited on: the
- *  spinner while preparing, the bar filling, and a brief highlight as a
- *  download lands. Idle screens do not move.
- * ------------------------------------------------------------------ */
-
 Screen {
     background: $background;
 }
-
-/* -- the bar across the top -- */
 
 BrandBar {
     height: 1;
@@ -55,8 +26,6 @@ BrandBar > Horizontal {
     width: auto;
 }
 
-/* One useful fact, never a decoration: on the main screen, where videos
-   are being saved. It is the first thing to go when space is short. */
 .brand-note {
     color: $text-muted;
     width: 1fr;
@@ -68,8 +37,6 @@ Screen.-narrow .brand-note {
     display: none;
 }
 
-/* -- the bar across the bottom -- */
-
 Footer {
     background: $surface;
 }
@@ -78,8 +45,6 @@ FooterKey .footer-key--key {
     color: $accent;
     text-style: bold;
 }
-
-/* -- main screen -- */
 
 #main-body {
     padding: 1 2;
@@ -103,7 +68,6 @@ Screen.-short #link-row {
     margin-bottom: 0;
 }
 
-/* The box you type in is the one thing always worth finding. */
 #url-input {
     width: 1fr;
     border: tall $panel;
@@ -123,8 +87,6 @@ Screen.-narrow #download-btn {
     margin-left: 1;
     min-width: 3;
 }
-
-/* -- the list header: how many, and how to arrange them -- */
 
 #list-header {
     height: auto;
@@ -152,8 +114,6 @@ Screen.-narrow #sort-select {
     scrollbar-size-vertical: 1;
 }
 
-/* A hairline above the status line, so the list ends at an edge rather
-   than running into the footer. */
 #status-row {
     height: auto;
     align-vertical: middle;
@@ -165,7 +125,6 @@ Screen.-short #status-row {
     padding-top: 0;
 }
 
-/* The spinner is only mounted-visible while work is in flight. */
 #busy {
     width: 4;
     height: 1;
@@ -178,7 +137,6 @@ Screen.-short #status-row {
     width: 1fr;
 }
 
-/* How the download is being run. Worth knowing, worth nothing more. */
 #plan-note {
     color: $text-muted;
     height: auto;
@@ -218,8 +176,6 @@ Screen.-narrow #plan-note {
     color: $foreground;
 }
 
-/* -- a download in the list -- */
-
 DownloadRow {
     height: auto;
     margin-bottom: 1;
@@ -236,8 +192,6 @@ Screen.-roomy DownloadRow {
     padding: 1 2 0 2;
 }
 
-/* The inner containers must size to their contents. Left to their default
-   they claim all remaining space, and a single row then fills the pane. */
 DownloadRow > Horizontal {
     height: auto;
 }
@@ -273,7 +227,6 @@ DownloadRow PercentageStatus {
     color: $text-muted;
 }
 
-/* The cross that removes a row, or stops it if it is still going. */
 DownloadRow .row-remove {
     min-width: 3;
     width: 3;
@@ -290,10 +243,6 @@ DownloadRow .row-remove:focus {
     color: $foreground;
 }
 
-/* -- being asked which quality, in the row itself -- */
-
-/* A row with a question in it is the only thing on screen wearing the
-   brand colour on its edge, so it is found without being announced. */
 DownloadRow.-choosing {
     border-left: outer $accent;
 }
@@ -302,13 +251,10 @@ DownloadRow.-choosing .row-detail {
     color: $accent;
 }
 
-/* The bar means nothing until there is something to measure. */
 DownloadRow.-choosing ProgressBar {
     display: none;
 }
 
-/* The chips sit on their own line, spaced like everything else: a clear
-   line above them only where there is room for one. */
 DownloadRow .row-choices {
     height: 1;
     width: 1fr;
@@ -353,8 +299,6 @@ Screen.-narrow .quality-chip {
     color: $foreground;
 }
 
-/* -- how a row ends -- */
-
 DownloadRow.-done {
     border-left: outer $success;
 }
@@ -379,13 +323,9 @@ DownloadRow.-failed .row-detail {
     color: $error;
 }
 
-/* One-shot highlight as a row lands. Removed on a timer, so nothing
-   continues to animate afterwards. */
 DownloadRow.-just-finished {
     background: $boost;
 }
-
-/* -- shared screen furniture -- */
 
 #settings-body,
 #history-body {
@@ -420,8 +360,6 @@ Screen.-roomy #settings-title,
 Screen.-roomy #history-title {
     padding: 1 4;
 }
-
-/* -- settings -- */
 
 .setting {
     height: auto;
@@ -489,8 +427,6 @@ Screen.-roomy #settings-actions {
     height: auto;
     padding: 0 2;
 }
-
-/* -- history -- */
 
 #history-tabs {
     height: 1fr;

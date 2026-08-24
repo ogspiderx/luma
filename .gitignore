@@ -1,19 +1,11 @@
-# Auto-installed portable tools and downloaded media stay local.
 bin/
 downloads/
 logs/
-
-# Per-user state, created at runtime.
 config.json
 history.json
 errors.json
-
-# Marker written by run.bat once first-run setup has completed.
 .installed
-
-# Built release archives.
 dist/
-
 __pycache__/
 *.pyc
 *.part

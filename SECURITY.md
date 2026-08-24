@@ -4,11 +4,8 @@ Luma runs external download tools and writes files to disk on behalf of
 whatever link is pasted into it. This page records what is done about that,
 and what was checked.
 
-None of the protection below was added at the end. Each piece was built where
-it belongs as the app was written; the audit exists to try to defeat it.
-
-Everything here is checked automatically by `tests/test_security.py`, which
-can be re-run at any time.
+Every claim below is covered by an automated audit, `tests/test_security.py`,
+which ships with the source rather than with the packaged release.
 
 ---
 
@@ -123,6 +120,8 @@ that decision belongs to the person, not the app.
   everything Luma created.
 
 ## Running the audit
+
+From a source checkout:
 
 ```
 python tests/test_security.py

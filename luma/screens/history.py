@@ -1,5 +1,3 @@
-"""History: what Luma downloaded, and what it could not."""
-
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
@@ -15,8 +13,6 @@ from ..history import (
 
 
 class HistoryScreen(SizeAware, Screen):
-    """Past downloads and anything that went wrong, read fresh from disk."""
-
     BINDINGS = [
         Binding("escape", "close", "Back"),
         Binding("r", "refresh", "Refresh"),
@@ -52,9 +48,7 @@ class HistoryScreen(SizeAware, Screen):
         )
         self._load()
 
-    # -- loading ---------------------------------------------------------
     def _load(self) -> None:
-        """Read both records from disk each time, so the screen is never stale."""
         downloads = (
             recent_downloads(path=self._history_path) if self._history_path
             else recent_downloads()
@@ -94,7 +88,6 @@ class HistoryScreen(SizeAware, Screen):
             "" if failures else "No problems recorded."
         )
 
-    # -- actions ---------------------------------------------------------
     def action_refresh(self) -> None:
         self._load()
 

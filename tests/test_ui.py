@@ -1,24 +1,16 @@
 #!/usr/bin/env python3
-"""
-Automated checks for Luma's terminal interface, driven headlessly by Textual's
-Pilot. These run without a real terminal, so they are the repeatable proof the
-UI works; looking at it by eye is a supplement, not a substitute.
-
-    python tests/test_ui.py
-"""
-
 import asyncio
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from textual.widgets import Button, Input, Static      # noqa: E402
+from textual.widgets import Button, Input, Static
 
-from luma.app import LumaApp                           # noqa: E402
-from luma.screens.history import HistoryScreen         # noqa: E402
-from luma.screens.main import MainScreen               # noqa: E402
-from luma.screens.settings import SettingsScreen       # noqa: E402
+from luma.app import LumaApp
+from luma.screens.history import HistoryScreen
+from luma.screens.main import MainScreen
+from luma.screens.settings import SettingsScreen
 
 _failures = []
 

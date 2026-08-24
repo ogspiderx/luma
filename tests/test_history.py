@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""
-Checks for the download and failure records.
-
-The two files are kept separate on purpose, and recording must never be able
-to break a download that already succeeded.
-
-    python tests/test_history.py
-"""
-
 import datetime
 import os
 import sys
@@ -15,12 +6,12 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from luma.history import (                                    # noqa: E402
-    ERRORS_CAP, HISTORY_CAP, human_size, human_when,
+from luma.history import (
+    ERRORS_CAP, human_size, human_when,
     record_failure, record_results, record_success,
     recent_downloads, recent_failures,
 )
-from luma.storage import read_list                            # noqa: E402
+from luma.storage import read_list
 
 _failures = []
 
@@ -108,7 +99,6 @@ def test_batch_recording():
         check("history has both successes", len(read_list(hist)) == 2)
         check("errors have both failures", len(read_list(errs)) == 2)
 
-        # A malformed row must not stop the rest being recorded.
         saved, failed = record_results(
             [("https://youtu.be/5", True, "", good), ("broken",)], "480",
             hist, errs)
@@ -130,8 +120,6 @@ def test_records_are_capped():
 
 def test_recording_never_raises():
     print("\n[recording never breaks a download]")
-    # /etc/hostname is a file, so it can never act as a parent directory.
-    # This stays unwritable even when the tests happen to run as root.
     unwritable = "/etc/hostname/sub/history.json"
     check("an unwritable location returns False instead of raising",
           record_success("https://youtu.be/x", "/tmp/a.mp4", "480",

@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""
-Checks for Luma's appearance and its motion.
-
-Luma allows animation in exactly three places, each tied to something the user
-is waiting on. These checks confirm those three work, that nothing else moves,
-and that the layout holds up in both a light and a dark theme.
-
-    python tests/test_visuals.py
-"""
-
 import asyncio
 import os
 import sys
@@ -16,12 +6,12 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from textual.widgets import (                            # noqa: E402
+from textual.widgets import (
     Button, Input, LoadingIndicator, ProgressBar, Static,
 )
 
-from luma.app import LumaApp                             # noqa: E402
-from luma.widgets.download_row import (                  # noqa: E402
+from luma.app import LumaApp
+from luma.widgets.download_row import (
     HIGHLIGHT_SECONDS, DownloadRow,
 )
 
@@ -35,10 +25,6 @@ def check(label, condition, detail=""):
         print(f"  FAIL  {label}  {detail}")
         _failures.append(label)
 
-
-# --------------------------------------------------------------------------- #
-#  1. the spinner                                                             #
-# --------------------------------------------------------------------------- #
 
 async def test_spinner_only_while_busy():
     print("\n[1. spinner - only while preparing]")
@@ -56,10 +42,6 @@ async def test_spinner_only_while_busy():
         await pilot.pause()
         check("hidden again when work ends", spinner.display is False)
 
-
-# --------------------------------------------------------------------------- #
-#  2. the progress bar                                                        #
-# --------------------------------------------------------------------------- #
 
 async def test_progress_bar_glides():
     print("\n[2. progress bar - glides rather than jumps]")
@@ -93,10 +75,6 @@ async def test_progress_bar_glides():
               "1MB/s" in text and "left" in text, text)
 
 
-# --------------------------------------------------------------------------- #
-#  3. the completion highlight                                                #
-# --------------------------------------------------------------------------- #
-
 async def test_completion_highlight_is_one_shot():
     print("\n[3. completion highlight - one shot, then settles]")
     app = LumaApp(auto_prepare=False)
@@ -128,12 +106,7 @@ async def test_completion_highlight_is_one_shot():
         check("a failed row is not marked done", not failed.has_class("-done"))
 
 
-# --------------------------------------------------------------------------- #
-#  nothing else moves                                                         #
-# --------------------------------------------------------------------------- #
-
 def count_running_animations(app):
-    """How many animations the app currently has in flight."""
     animator = app.animator
     for attr in ("_animations", "_scheduled"):
         value = getattr(animator, attr, None)
@@ -174,10 +147,6 @@ async def test_idle_screens_are_still():
               len(app.screen.query(LoadingIndicator)) == 0)
 
 
-# --------------------------------------------------------------------------- #
-#  themes                                                                     #
-# --------------------------------------------------------------------------- #
-
 async def test_layout_holds_in_both_themes():
     print("\n[light and dark]")
     for theme in ("luma-night", "luma-day"):
@@ -211,11 +180,6 @@ async def test_layout_holds_in_both_themes():
 
 
 async def test_rows_stack_compactly():
-    """Several downloads must fit on screen together.
-
-    Guards against a row claiming all remaining space, which lets the first
-    download fill the pane and pushes every other one out of sight.
-    """
     print("\n[rows stack compactly]")
     app = LumaApp(auto_prepare=False)
     async with app.run_test(size=(84, 34)) as pilot:
@@ -240,11 +204,6 @@ async def test_rows_stack_compactly():
 
 
 async def test_feedback_is_actually_on_screen():
-    """Text a user needs to read must occupy real space, not just exist.
-
-    Guards against styling that hides a populated element: checking a widget's
-    text is not enough, since a hidden widget still holds its text.
-    """
     print("\n[feedback is really visible]")
     app = LumaApp(auto_prepare=False)
     async with app.run_test(size=(88, 26)) as pilot:

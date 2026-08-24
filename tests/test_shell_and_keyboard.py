@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""
-Checks on the shell around the app: what is on screen that need not be,
-whether the whole thing can be driven from the keyboard, and whether the
-spacing changes with the window as it is meant to.
-
-    python tests/test_shell_and_keyboard.py
-"""
-
 import asyncio
 import os
 import sys
@@ -14,19 +6,19 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from textual.widgets import (                                     # noqa: E402
-    Button, DataTable, Footer, Input, Select, Static, Switch,
+from textual.widgets import (
+    Footer, Input, Static, Switch,
 )
-from textual.widgets._footer import FooterKey                     # noqa: E402
+from textual.widgets._footer import FooterKey
 
-from luma.app import LumaApp                                      # noqa: E402
-from luma.branding import WORDMARK                                # noqa: E402
-from luma.config import load_config, save_config                  # noqa: E402
-from luma.screens.settings import THEME_CHOICES                   # noqa: E402
-from luma.theme import DEFAULT_THEME, THEME_NAMES                 # noqa: E402
-from luma.widgets.brandbar import BrandBar                        # noqa: E402
-from luma.widgets.download_row import DownloadRow, QualityChip    # noqa: E402
-from luma.widgets.sizing import (                                 # noqa: E402
+from luma.app import LumaApp
+from luma.branding import WORDMARK
+from luma.config import load_config, save_config
+from luma.screens.settings import THEME_CHOICES
+from luma.theme import DEFAULT_THEME, THEME_NAMES
+from luma.widgets.brandbar import BrandBar
+from luma.widgets.download_row import DownloadRow, QualityChip
+from luma.widgets.sizing import (
     NARROW_COLUMNS, ROOMY_COLUMNS, SHORT_ROWS, classes_for,
 )
 
@@ -50,17 +42,12 @@ def text_of(widget):
 
 
 def footer_keys(screen):
-    """What the footer is actually offering, as lowercase text."""
     try:
         footer = screen.query_one(Footer)
-    except Exception:                                  # noqa: BLE001
+    except Exception:
         return []
     return [str(k.description).lower() for k in footer.query(FooterKey)]
 
-
-# --------------------------------------------------------------------------- #
-#  nothing on screen that does nothing                                        #
-# --------------------------------------------------------------------------- #
 
 async def test_the_command_palette_is_gone():
     print("\n[the command palette]")
@@ -131,10 +118,6 @@ async def test_only_lumas_own_looks_are_offered():
                   app.theme == DEFAULT_THEME, str(app.theme))
 
 
-# --------------------------------------------------------------------------- #
-#  the keyboard on its own                                                    #
-# --------------------------------------------------------------------------- #
-
 async def test_everything_on_the_main_screen_can_be_reached():
     print("\n[the main screen, keyboard only]")
     app = LumaApp(auto_prepare=False)
@@ -151,7 +134,7 @@ async def test_everything_on_the_main_screen_can_be_reached():
             {"height": 720, "label": "720p", "filesize": 105 * 1024 ** 2},
             {"height": 480, "label": "480p", "filesize": 55 * 1024 ** 2},
         ])
-        screen._after_list_change()      # the sort box appears with the list
+        screen._after_list_change()
         await pilot.pause()
 
         reachable = {w.id or "" for w in screen.focus_chain}
@@ -166,9 +149,6 @@ async def test_everything_on_the_main_screen_can_be_reached():
         check("so are the qualities on offer",
               "QualityChip" in kinds, str(kinds))
 
-        # Stop and Clear are never on screen together -- one is for work in
-        # flight, the other for work that is over -- so each is checked in
-        # the state it belongs to.
         screen._download_active = True
         screen._refresh_buttons()
         await pilot.pause()
@@ -186,7 +166,6 @@ async def test_everything_on_the_main_screen_can_be_reached():
 
 
 async def test_tab_goes_right_round_the_main_screen():
-    """Nothing may be stranded behind a step only a mouse can take."""
     print("\n[tab wraps round]")
     app = LumaApp(auto_prepare=False)
     async with app.run_test(size=(100, 34)) as pilot:
@@ -219,7 +198,6 @@ async def test_tab_goes_right_round_the_main_screen():
         check("and tab comes back to where it started",
               app.focused is seen[0], str(app.focused))
 
-        # Backwards as well, so nothing is a one-way trip.
         await pilot.press("shift+tab")
         await pilot.pause()
         check("shift+tab goes the other way",
@@ -227,7 +205,6 @@ async def test_tab_goes_right_round_the_main_screen():
 
 
 async def test_the_commands_work_from_the_link_box():
-    """A text box claims ctrl+x and ctrl+a; Luma's commands must still win."""
     print("\n[commands are not swallowed by the link box]")
     app = LumaApp(auto_prepare=False)
     async with app.run_test(size=(100, 30)) as pilot:
@@ -248,7 +225,6 @@ async def test_the_commands_work_from_the_link_box():
                   screen.query_one("#status-line", Static)).lower(),
               text_of(screen.query_one("#status-line", Static)))
 
-        # ctrl+a with something to answer.
         screen._download_active = False
         holder = screen.query_one("#downloads")
         for index in (1, 2):
@@ -291,7 +267,6 @@ async def test_settings_can_be_done_without_a_mouse():
                   isinstance(app.focused, Input)
                   and app.focused.id == "set-folder", str(app.focused))
 
-            # Change something and save, using keys only.
             screen.query_one("#set-ask-quality", Switch).focus()
             await pilot.press("enter")
             await pilot.pause()
@@ -362,10 +337,6 @@ async def test_the_footer_only_offers_what_is_possible():
               str(footer_keys(screen)))
 
 
-# --------------------------------------------------------------------------- #
-#  spacing that follows the window                                            #
-# --------------------------------------------------------------------------- #
-
 def test_the_size_rules_are_sane():
     print("\n[which size is which]")
     check("a small window is narrow",
@@ -397,8 +368,6 @@ async def test_the_screen_carries_its_size():
             check(f"{width}x{height} is {expected or 'plain'}",
                   here == expected, str(here))
 
-            # And it keeps up when the window changes rather than only
-            # being right on the first frame.
             await pilot.resize_terminal(150, 45)
             await pilot.pause()
             check(f"{width}x{height} -> 150x45 becomes roomy",

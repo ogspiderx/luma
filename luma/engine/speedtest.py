@@ -1,10 +1,3 @@
-"""
-Measuring the user's connection, so the download plan can be calculated
-rather than guessed.
-
-Ported unchanged from yt_turbo.py apart from status reporting via callbacks.
-"""
-
 import concurrent.futures as futures
 import socket
 import ssl
@@ -18,10 +11,6 @@ from .constants import SPEEDTEST_HOST, SPEEDTEST_URL, UA
 
 
 def _timed_download(nbytes, max_secs, counter=None):
-    """Download up to `nbytes` from Cloudflare, but stop after `max_secs`.
-
-    Returns (bytes_read, elapsed_seconds). Adapts to slow links.
-    """
     url = SPEEDTEST_URL.format(n=nbytes)
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     ctx = ssl.create_default_context()
@@ -45,7 +34,6 @@ def _timed_download(nbytes, max_secs, counter=None):
 
 
 def measure_latency(host=SPEEDTEST_HOST, port=443, samples=5):
-    """Median TCP-connect RTT in milliseconds (no ICMP needed)."""
     times = []
     for _ in range(samples):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -61,32 +49,19 @@ def measure_latency(host=SPEEDTEST_HOST, port=443, samples=5):
     return statistics.median(times) if times else 40.0
 
 
-#: Some networks block the speed-test host outright. Once that is established
-#: there is no point paying twelve seconds for the same answer every time, so
-#: the result is remembered for the rest of the session.
 _unavailable = False
 
 
 def speedtest_unavailable():
-    """True if the speed test has already been found unreachable."""
     return _unavailable
 
 
 def reset_speedtest_state():
-    """Forget a previous failure (used by the tests)."""
     global _unavailable
     _unavailable = False
 
 
 def measure_bandwidth(callbacks=None):
-    """Returns (single_mbps, line_mbps, rtt_ms).
-
-    single_mbps : throughput of ONE TCP stream  -> the per-connection ceiling.
-    line_mbps   : throughput of MANY parallel streams -> the real line rate.
-
-    The ratio line/single is how many connections it takes to fill the pipe,
-    which is what compute_plan() turns into a download plan.
-    """
     global _unavailable
     callbacks = callbacks or EngineCallbacks()
 
@@ -98,8 +73,6 @@ def measure_bandwidth(callbacks=None):
     single_mbps = b * 8 / t / 1e6
 
     if b == 0:
-        # The host could not be reached at all. Give up rather than spend
-        # another six seconds proving it, and do not ask again this session.
         _unavailable = True
         return 0.0, 0.0, measure_latency()
 
@@ -117,7 +90,6 @@ def measure_bandwidth(callbacks=None):
     elapsed = max(time.time() - start, 1e-6)
     line_mbps = counter["bytes"] * 8 / elapsed / 1e6
 
-    # Parallel should never read as slower than single (measurement noise).
     line_mbps = max(line_mbps, single_mbps)
 
     rtt = measure_latency()

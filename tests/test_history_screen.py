@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""
-Checks for the History screen.
-
-The promise being tested is that a person can see what Luma downloaded and
-what went wrong without ever opening a file, and that what they see matches
-what is actually on disk.
-
-    python tests/test_history_screen.py
-"""
-
 import asyncio
 import os
 import sys
@@ -16,12 +6,12 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from textual.widgets import Button, DataTable, Static      # noqa: E402
+from textual.widgets import DataTable, Static
 
-from luma.app import LumaApp                               # noqa: E402
-from luma.history import record_failure, record_success    # noqa: E402
-from luma.screens.history import HistoryScreen             # noqa: E402
-from luma.screens.main import MainScreen                   # noqa: E402
+from luma.app import LumaApp
+from luma.history import record_failure, record_success
+from luma.screens.history import HistoryScreen
+from luma.screens.main import MainScreen
 
 _failures = []
 
@@ -43,7 +33,6 @@ def text_of(widget):
 
 
 def cells(table):
-    """Every cell in the table as plain strings."""
     out = []
     for row_key in table.rows:
         out.append([str(c) for c in table.get_row(row_key)])
@@ -51,7 +40,6 @@ def cells(table):
 
 
 def seed(td):
-    """Write a couple of downloads and a couple of failures."""
     hist = os.path.join(td, "history.json")
     errs = os.path.join(td, "errors.json")
     video = os.path.join(td, "Holiday Clip [dQw4w9WgXcQ].mp4")
@@ -171,7 +159,6 @@ async def test_reads_fresh_each_time():
             await pilot.press("escape")
             await pilot.pause()
 
-            # Something else records a download while the screen is closed.
             record_success("https://youtu.be/eee",
                            os.path.join(td, "Later [nY0FYp8y4Lo].mp4"), "720", hist)
 

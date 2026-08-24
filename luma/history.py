@@ -1,12 +1,3 @@
-"""
-Keeping a record of what Luma downloaded, and what it could not.
-
-Successes and failures live in separate files so a run of failures never
-buries the list of downloads that worked. Both are capped, so neither can grow
-without limit, and both go through the atomic storage helpers, so a crash
-mid-write cannot destroy an existing record.
-"""
-
 import datetime
 import os
 
@@ -14,7 +5,6 @@ from .engine.paths import title_from_filename
 from .locations import ERRORS_PATH, HISTORY_PATH
 from .storage import append_capped, read_list
 
-#: Entries kept per file. Old ones fall off the end.
 HISTORY_CAP = 2000
 ERRORS_CAP = 500
 
@@ -24,7 +14,6 @@ def _now():
 
 
 def _title_from_path(path):
-    """Recover a readable title from a finished file's name."""
     return title_from_filename(path) or "Unknown video"
 
 
@@ -36,7 +25,6 @@ def _size_of(path):
 
 
 def record_success(url, filepath, quality=None, path=HISTORY_PATH):
-    """Record a finished download. Never raises."""
     try:
         return append_capped(path, {
             "title": _title_from_path(filepath),
@@ -46,25 +34,23 @@ def record_success(url, filepath, quality=None, path=HISTORY_PATH):
             "size": _size_of(filepath),
             "quality": quality,
         }, cap=HISTORY_CAP)
-    except Exception:                                  # noqa: BLE001
+    except Exception:
         return False
 
 
 def record_failure(url, reason, path=ERRORS_PATH):
-    """Record a download that did not work. Never raises."""
     try:
         return append_capped(path, {
             "url": url,
             "reason": reason or "The download did not finish.",
             "when": _now(),
         }, cap=ERRORS_CAP)
-    except Exception:                                  # noqa: BLE001
+    except Exception:
         return False
 
 
 def record_results(results, quality=None, history_path=HISTORY_PATH,
                    errors_path=ERRORS_PATH):
-    """Record a whole batch of (url, ok, reason, filepath) tuples."""
     saved = failed = 0
     for item in results:
         try:
@@ -81,17 +67,14 @@ def record_results(results, quality=None, history_path=HISTORY_PATH,
 
 
 def recent_downloads(limit=200, path=HISTORY_PATH):
-    """Finished downloads, newest first."""
     return read_list(path, limit=limit)
 
 
 def recent_failures(limit=200, path=ERRORS_PATH):
-    """Failed downloads, newest first."""
     return read_list(path, limit=limit)
 
 
 def human_size(size):
-    """Format a byte count for display, or a dash when it is unknown."""
     if not isinstance(size, (int, float)) or size <= 0:
         return "-"
     value = float(size)
@@ -102,7 +85,6 @@ def human_size(size):
 
 
 def human_when(stamp):
-    """Turn a stored timestamp into something readable."""
     try:
         moment = datetime.datetime.fromisoformat(stamp)
     except (TypeError, ValueError):

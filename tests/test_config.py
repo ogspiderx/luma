@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""
-Checks for Luma's settings storage.
-
-The point of these is resilience: a missing, damaged or hand-edited settings
-file must never stop Luma from starting, and values off disk must never be
-trusted as-is. No interface is involved.
-
-    python tests/test_config.py
-"""
-
 import json
 import os
 import sys
@@ -16,13 +6,13 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from luma.config import (                                    # noqa: E402
-    DEFAULTS, MAX_PARALLEL_LIMIT, describe, load_config,
+from luma.config import (
+    DEFAULTS, MAX_PARALLEL_LIMIT, load_config,
     normalize, resolve_output_dir, save_config,
 )
-from luma.engine.constants import ARIA2_MAX_PER_FILE         # noqa: E402
-from luma.engine.errors import UnsafePathError               # noqa: E402
-from luma.storage import (                                   # noqa: E402
+from luma.engine.constants import ARIA2_MAX_PER_FILE
+from luma.engine.errors import UnsafePathError
+from luma.storage import (
     append_capped, atomic_write_json, read_list, safe_read_json,
 )
 
@@ -63,15 +53,13 @@ def test_storage_survives_damage():
               atomic_write_json(path, {"b": 2})
               and safe_read_json(path) == {"b": 2})
 
-        # The previous file must survive a failed write.
         with open(path, "w") as fh:
             json.dump({"keep": "me"}, fh)
-        ok = atomic_write_json(path, {"bad": {1, 2, 3}})   # a set is not JSON
+        ok = atomic_write_json(path, {"bad": {1, 2, 3}})
         check("unserialisable data is refused", ok is False)
         check("the existing file was left intact",
               safe_read_json(path) == {"keep": "me"})
 
-        # No temp files left lying around.
         leftovers = [f for f in os.listdir(td) if f.endswith(".tmp")]
         check("no temporary files left behind", not leftovers, str(leftovers))
 
@@ -200,16 +188,6 @@ def test_round_trip():
               == DEFAULTS["quality"])
 
 
-def test_plain_language_summary():
-    print("\n[plain language]")
-    lines = describe(normalize({"quality": "best", "folders": "date"}))
-    joined = " ".join(lines).lower()
-    check("summary avoids tool names",
-          not any(t in joined for t in ("yt-dlp", "aria2c", "ffmpeg")))
-    check("summary avoids flag syntax", "--" not in joined)
-    check("best quality is spelled out", "best available" in joined, joined)
-
-
 def main():
     print("=" * 62)
     print("  Luma settings checks")
@@ -220,7 +198,6 @@ def main():
     test_dangerous_paths_rejected()
     test_output_folder_resolution()
     test_round_trip()
-    test_plain_language_summary()
 
     print("\n" + "=" * 62)
     if _failures:

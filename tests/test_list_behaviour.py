@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""
-Checks for how the download list behaves: what each row is called, what
-happens when the same link is pasted twice, clearing finished downloads,
-scrolling a long list, and reporting speed honestly.
-
-    python tests/test_list_behaviour.py
-"""
-
 import asyncio
 import os
 import sys
@@ -14,13 +6,13 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from textual.containers import VerticalScroll                # noqa: E402
-from textual.widgets import Button, Input, Static            # noqa: E402
+from textual.containers import VerticalScroll
+from textual.widgets import Button, Input, Static
 
-from luma.app import LumaApp                                 # noqa: E402
-from luma.engine.paths import title_from_filename            # noqa: E402
-from luma.engine.plan import compute_plan, describe_plan     # noqa: E402
-from luma.widgets.download_row import (                      # noqa: E402
+from luma.app import LumaApp
+from luma.engine.paths import title_from_filename
+from luma.engine.plan import compute_plan, describe_plan
+from luma.widgets.download_row import (
     DownloadRow, rate_to_bytes,
 )
 
@@ -44,16 +36,11 @@ def text_of(widget):
 
 
 def notifications(app):
-    """Text of every notification currently raised."""
     try:
         return [str(n.message) for n in app._notifications]
-    except Exception:                                        # noqa: BLE001
+    except Exception:
         return []
 
-
-# --------------------------------------------------------------------------- #
-#  1. rows are named after the video, not the link                            #
-# --------------------------------------------------------------------------- #
 
 def test_title_read_from_filename():
     print("\n[1. the title is recovered from the file being written]")
@@ -94,10 +81,6 @@ async def test_row_shows_title_once_known():
         check("but the row still knows its link", row.url == url)
 
 
-# --------------------------------------------------------------------------- #
-#  2. duplicates                                                              #
-# --------------------------------------------------------------------------- #
-
 async def test_duplicate_warnings():
     print("\n[2. duplicates are pointed out]")
     with tempfile.TemporaryDirectory() as td:
@@ -105,7 +88,6 @@ async def test_duplicate_warnings():
         async with app.run_test() as pilot:
             screen = app.screen
 
-            # The same link twice in one paste.
             urls, notices = screen._filter_duplicates(
                 ["https://youtu.be/aaa", "https://youtu.be/aaa",
                  "https://youtu.be/bbb"]
@@ -116,7 +98,6 @@ async def test_duplicate_warnings():
             check("and the user is told", any("repeat" in n.lower()
                                               for n in notices), str(notices))
 
-            # A link already in the list.
             holder = screen.query_one("#downloads", VerticalScroll)
             holder.mount(DownloadRow("1", "https://youtu.be/aaa"))
             screen._rows["1"] = holder.children[-1]
@@ -131,7 +112,6 @@ async def test_duplicate_warnings():
                   any("already in the list" in n.lower() for n in notices),
                   str(notices))
 
-            # Nothing left to do at all.
             urls, notices = screen._filter_duplicates(["https://youtu.be/aaa"])
             check("everything filtered leaves nothing queued", urls == [])
             check("with a reason given", len(notices) >= 1, str(notices))
@@ -160,10 +140,6 @@ async def test_duplicate_paste_does_not_start_a_download():
                   any("already" in n.lower() for n in notifications(app)),
                   str(notifications(app)))
 
-
-# --------------------------------------------------------------------------- #
-#  3. clearing finished downloads                                             #
-# --------------------------------------------------------------------------- #
 
 async def test_clear_finished():
     print("\n[3. finished downloads can be cleared away]")
@@ -244,10 +220,6 @@ async def test_clear_by_keyboard_and_button():
               len(screen.query(DownloadRow)) == 0)
 
 
-# --------------------------------------------------------------------------- #
-#  4. scrolling                                                               #
-# --------------------------------------------------------------------------- #
-
 async def test_long_list_scrolls():
     print("\n[4. a long list can be scrolled]")
     app = LumaApp(auto_prepare=False)
@@ -280,10 +252,6 @@ async def test_long_list_scrolls():
         check("page up moves back", holder.scroll_offset.y < scrolled,
               f"{scrolled} -> {holder.scroll_offset.y}")
 
-
-# --------------------------------------------------------------------------- #
-#  5. speed is reported honestly                                              #
-# --------------------------------------------------------------------------- #
 
 def test_unmeasurable_speed_is_not_shown():
     print("\n[5. an unmeasured speed is omitted, not shown as zero]")

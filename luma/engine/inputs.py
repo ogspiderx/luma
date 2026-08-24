@@ -1,11 +1,3 @@
-"""
-Turning whatever the user pasted into a clean list of video URLs.
-
-Adds a strict scheme allowlist on top of the ported logic: only http/https
-URLs are ever accepted, and validation happens before a URL reaches yt-dlp or
-is written to any file on disk.
-"""
-
 import os
 import re
 import subprocess
@@ -14,10 +6,8 @@ from urllib.parse import urlparse
 from .callbacks import EngineCallbacks
 from .errors import InvalidURLError
 
-#: The only URL schemes Luma will ever hand to an external tool.
 ALLOWED_SCHEMES = ("http", "https")
 
-#: Hosts Luma understands. This version is YouTube-only by design.
 _YOUTUBE_HOSTS = (
     "youtube.com",
     "www.youtube.com",
@@ -29,7 +19,6 @@ _YOUTUBE_HOSTS = (
 
 
 def is_valid_url(url):
-    """True if `url` is a syntactically valid http(s) URL."""
     try:
         parsed = urlparse(url.strip())
     except (ValueError, AttributeError):
@@ -38,7 +27,6 @@ def is_valid_url(url):
 
 
 def is_youtube_url(url):
-    """True if `url` points at a host Luma supports."""
     try:
         host = (urlparse(url.strip()).hostname or "").lower()
     except (ValueError, AttributeError):
@@ -47,7 +35,6 @@ def is_youtube_url(url):
 
 
 def validate_url(url):
-    """Return a cleaned URL, or raise InvalidURLError with a readable reason."""
     cleaned = (url or "").strip()
     if not cleaned:
         raise InvalidURLError("Please paste a link first.")
@@ -64,13 +51,6 @@ def validate_url(url):
 
 
 def gather_inputs(raw_inputs):
-    """Split each item into either a URL or the lines of a .txt file.
-
-    Invalid entries are skipped rather than aborting the batch; the caller
-    gets back only URLs that passed validation, plus the rejects.
-
-    Returns (urls, rejected) where `rejected` is a list of (text, reason).
-    """
     urls, rejected = [], []
     for item in raw_inputs:
         candidates = []
@@ -96,16 +76,10 @@ def gather_inputs(raw_inputs):
 
 
 def split_pasted_text(text):
-    """Split a pasted blob into individual candidate links."""
     return [part for part in re.split(r"[\s,]+", text or "") if part]
 
 
 def _is_playlist_like(url):
-    """True only for URLs that should be expanded into many videos.
-
-    A plain watch/youtu.be link is treated as a single video even if it carries
-    a `list=` autoplay/mix parameter, so we never balloon into a radio mix.
-    """
     u = url.lower()
     if "/playlist" in u:
         return True
@@ -116,12 +90,6 @@ def _is_playlist_like(url):
 
 
 def expand_playlists(ytdlp, urls, callbacks=None):
-    """Turn playlist / channel URLs into individual video URLs.
-
-    Plain single-video links pass straight through untouched -- the downloader
-    gets --no-playlist, so a `?list=RD...` autoplay tail is ignored and only
-    that one video is fetched.
-    """
     callbacks = callbacks or EngineCallbacks()
     flat = []
     seen = set()
@@ -132,12 +100,10 @@ def expand_playlists(ytdlp, urls, callbacks=None):
             flat.append(u)
 
     for url in urls:
-        # Plain video link -> no need to call yt-dlp; use it as-is.
         if not _is_playlist_like(url):
             add(url)
             continue
 
-        # Real playlist / channel -> enumerate its videos.
         callbacks.on_status("Reading playlist...")
         cmd = [
             ytdlp, "--flat-playlist", "--no-warnings", "--yes-playlist",

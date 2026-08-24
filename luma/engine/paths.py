@@ -1,19 +1,10 @@
-"""
-Path handling that refuses to write outside where it is supposed to.
-
-Any folder that originates from user input passes through here before it is
-used as a download target.
-"""
-
 import os
 import re
 
 from .errors import UnsafePathError
 
-#: Characters Windows forbids in a filename, plus control characters.
 _ILLEGAL_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
-#: Directories we refuse to write into even if the user asks.
 _FORBIDDEN_ROOTS = (
     "/etc", "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/boot", "/dev",
     "/proc", "/sys",
@@ -21,26 +12,15 @@ _FORBIDDEN_ROOTS = (
 
 
 def sanitize_filename(name, limit=120):
-    """Make a string safe to use as a single filename component."""
     cleaned = _ILLEGAL_FILENAME.sub("", name or "").strip().rstrip(". ")
     return (cleaned or "download")[:limit]
 
 
-#: Trailing " [videoid]" that downloads are named with. YouTube ids are
-#: exactly eleven of these characters; matching that precisely avoids eating a
-#: bracketed word that is genuinely part of the title, such as "[Official]".
 _ID_SUFFIX = re.compile(r"\s*\[[A-Za-z0-9_-]{11}\]$")
-#: Trailing ".f137" style stream-format marker on a part file.
 _FORMAT_SUFFIX = re.compile(r"\.f\d+$")
 
 
 def title_from_filename(path):
-    """Recover the video's title from the file Luma is writing.
-
-    Downloads are named "Title [videoid].ext", and part files carry an extra
-    ".f137" style marker, so the title can be read back without asking the
-    network for it a second time.
-    """
     if not path:
         return ""
     name = re.split(r"[\\/]", str(path).strip())[-1]
@@ -51,19 +31,12 @@ def title_from_filename(path):
 
 
 def expand(path):
-    """Expand ~ and environment variables, then make the path absolute."""
     expanded = os.path.expandvars(os.path.expanduser(str(path or "").strip()))
     return os.path.abspath(expanded)
 
 
 def safe_join(base, *parts):
-    """Join `parts` onto `base`, refusing anything that escapes `base`.
-
-    Raises UnsafePathError if the result would land outside `base`.
-    """
     base_abs = expand(base)
-    # Each part is reduced to a safe single component -- this is what stops
-    # "../.." or an absolute path from being smuggled in through a setting.
     safe_parts = [sanitize_filename(p) for p in parts if str(p).strip()]
     candidate = os.path.abspath(os.path.join(base_abs, *safe_parts))
 
@@ -77,17 +50,12 @@ def safe_join(base, *parts):
 
 
 def validate_output_dir(path):
-    """Check a user-chosen download folder is somewhere sane and writable.
-
-    Returns the resolved absolute path, or raises UnsafePathError.
-    """
     raw = str(path or "").strip()
     if not raw:
         raise UnsafePathError("Please choose a folder to save downloads in.")
 
     resolved = expand(raw)
 
-    # Refuse system directories outright.
     lowered = resolved.lower() if os.name == "nt" else resolved
     for root in _FORBIDDEN_ROOTS:
         if lowered == root or lowered.startswith(root + os.sep):
@@ -96,8 +64,6 @@ def validate_output_dir(path):
                 "Videos or Downloads folder instead."
             )
 
-    # The folder itself need not exist yet, but its nearest existing parent
-    # has to be a real, writable directory.
     probe = resolved
     while probe and not os.path.exists(probe):
         parent = os.path.dirname(probe)
@@ -115,7 +81,6 @@ def validate_output_dir(path):
 
 
 def ensure_dir(path):
-    """Create `path` if needed and return it. Raises UnsafePathError on failure."""
     try:
         os.makedirs(path, exist_ok=True)
     except OSError as exc:

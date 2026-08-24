@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""
-End-to-end checks of the download flow inside the running interface.
-
-A stand-in downloader replaying real captured tool output stands in for
-yt-dlp, so the whole path -- button press, worker thread, engine, callbacks
-marshalled back to the UI, progress rows, completion -- is exercised without
-depending on the network.
-
-    python tests/test_download_flow.py
-"""
-
 import asyncio
 import os
 import stat
@@ -20,11 +9,11 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from textual.widgets import Button, Input, Static      # noqa: E402
+from textual.widgets import Button, Input, Static
 
-from luma.app import LumaApp                           # noqa: E402
-from luma.screens import main as main_mod              # noqa: E402
-from luma.widgets.download_row import DownloadRow      # noqa: E402
+from luma.app import LumaApp
+from luma.screens import main as main_mod
+from luma.widgets.download_row import DownloadRow
 
 _failures = []
 
@@ -38,7 +27,6 @@ def check(label, condition, detail=""):
 
 
 def text_of(widget):
-    """Read a Static's visible text across Textual versions."""
     for attr in ("content", "renderable"):
         value = getattr(widget, attr, None)
         if value is not None:
@@ -74,11 +62,6 @@ def make_fake(tmpdir):
 
 
 def patch_engine(fake_path, tmpdir):
-    """Point the screen's engine calls at the stand-in downloader.
-
-    Recording is redirected into the temporary folder too, so running the
-    tests never touches the real history and error files.
-    """
     from luma import history as history_mod
 
     main_mod.ensure_tools = lambda cb=None: {
@@ -97,7 +80,6 @@ def patch_engine(fake_path, tmpdir):
 
 
 async def wait_for_idle(app, timeout=45):
-    """Wait until the screen reports the download finished."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         if not app.screen._download_active:
@@ -107,12 +89,6 @@ async def wait_for_idle(app, timeout=45):
 
 
 async def wait_until(predicate, timeout=15):
-    """Wait for a condition rather than assuming it is already true.
-
-    The download runs on a worker thread and reaches the interface through
-    call_from_thread, so anything it produces arrives shortly after the click,
-    not during it. Polling keeps these checks from racing under load.
-    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         if predicate():
@@ -140,9 +116,6 @@ async def test_single_download():
             box = screen.query_one("#url-input", Input)
             box.value = "https://youtu.be/abc"
 
-            # Check the "busy" state without racing the worker: _start() runs
-            # to completion synchronously, so inspecting before yielding
-            # control catches the state the worker cannot yet have cleared.
             screen._start()
             check("the download starts", screen._download_active)
             check("more can still be added while it runs",
@@ -150,7 +123,6 @@ async def test_single_download():
             check("link box was cleared", box.value == "")
             await pilot.pause()
 
-            # The UI must keep responding while the blocking engine runs.
             await asyncio.sleep(0.6)
             responsive = False
             try:
@@ -242,7 +214,7 @@ async def test_failure_is_explained():
             screen._settings = lambda: {
                 "output_dir": td, "quality": "480", "max_parallel": 8,
                 "conns_per_file": None, "archive": False,
-                "run_speedtest": False,   # keep the retry loop quick
+                "run_speedtest": False,
             }
             screen.query_one("#url-input", Input).value = "https://youtu.be/a"
             await pilot.click("#download-btn")
@@ -283,13 +255,12 @@ async def test_bad_link_rejected():
 
 
 async def test_results_are_recorded():
-    """A finished run must leave a record behind, successes and failures apart."""
     print("\n[downloads are recorded]")
     from luma.storage import read_list
 
     with tempfile.TemporaryDirectory() as td:
         fake = make_fake(td)
-        patch_engine(fake, td)   # also redirects recording into `td`
+        patch_engine(fake, td)
         hist = os.path.join(td, "history.json")
         errs = os.path.join(td, "errors.json")
 
@@ -324,7 +295,6 @@ async def test_results_are_recorded():
                   rows[0]["quality"] == "720", str(rows[0]["quality"]))
         check("no failures were recorded", read_list(errs) == [])
 
-        # Now a failing run, which must land in the other file only.
         os.environ["LUMA_FAKE_MODE"] = "fail"
         app = LumaApp(auto_prepare=False)
         async with app.run_test() as pilot:

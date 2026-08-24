@@ -2,27 +2,8 @@
 setlocal EnableExtensions EnableDelayedExpansion
 title Luma
 
-REM ------------------------------------------------------------------ REM
-REM  Double-click launcher for Luma.                                    REM
-REM   - finds Python (py launcher or python.exe)                        REM
-REM   - offers to install it with winget if it is missing               REM
-REM   - installs what Luma needs the first time only                    REM
-REM   - starts Luma                                                     REM
-REM ------------------------------------------------------------------ REM
-
 cd /d "%~dp0"
 
-REM --- open in its own window -----------------------------------------
-REM  Luma opens maximised in Windows Terminal, which keeps the tab strip
-REM  and title bar. That looks slightly busier than focus mode, but it is
-REM  what you grab to move the window -- focus mode leaves nothing to drag.
-REM
-REM    run.bat            maximised, movable       (default)
-REM    run.bat --bare     no tabs, no title bar    (cannot be dragged)
-REM    run.bat --windowed plain console, no relaunch
-REM
-REM  F11 toggles full screen at any time, whichever was used.
-REM  LUMA_FRAMED stops the relaunch from looping.
 set "LUMA_WTMODE=--maximized"
 if /i "%~1"=="--bare" set "LUMA_WTMODE=--focus --maximized"
 
@@ -35,7 +16,6 @@ if not defined LUMA_FRAMED if /i not "%~1"=="--windowed" (
     )
 )
 
-REM --- locate Python -------------------------------------------------
 set "PY="
 where py >nul 2>&1 && set "PY=py -3"
 if not defined PY (
@@ -68,7 +48,6 @@ if not defined PY (
     exit /b 0
 )
 
-REM --- first run: install what Luma needs -----------------------------
 if not exist ".installed" (
     echo.
     echo   Setting up Luma for the first time. This happens once.
@@ -87,9 +66,6 @@ if not exist ".installed" (
     echo.
 )
 
-REM --- start Luma -----------------------------------------------------
-REM  Python and the interface take a moment to load. Put something on the
-REM  screen so that moment is not a blank window with a blinking cursor.
 cls
 echo.
 echo      L U M A
@@ -99,7 +75,6 @@ echo.
 
 %PY% -m luma %*
 
-REM Only pause if something went wrong, so a normal quit closes cleanly.
 if errorlevel 1 (
     echo.
     echo   Luma closed unexpectedly. If this keeps happening, look in the

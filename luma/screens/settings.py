@@ -1,5 +1,3 @@
-"""Settings: everything the user can change, changed from inside Luma."""
-
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -19,9 +17,6 @@ from ..theme import DEFAULT_THEME, LUMA_DAY, LUMA_NIGHT
 from ..widgets.brandbar import BrandBar
 from ..widgets.sizing import SizeAware
 
-#: The two looks Luma has. Borrowed palettes are deliberately not offered:
-#: the interface is designed around one colour doing one job, and a scheme
-#: that knows nothing about that undoes the design it is applied to.
 THEME_CHOICES = [
     (NIGHT_LABEL, LUMA_NIGHT.name),
     (DAY_LABEL, LUMA_DAY.name),
@@ -42,8 +37,6 @@ FOLDER_LABELS = [
 
 
 class SettingsScreen(SizeAware, Screen):
-    """Where the user changes how Luma behaves."""
-
     BINDINGS = [
         Binding("escape", "close", "Back"),
         Binding("ctrl+s", "save", "Save"),
@@ -56,10 +49,7 @@ class SettingsScreen(SizeAware, Screen):
     def compose(self) -> ComposeResult:
         yield BrandBar(id="brand")
         yield Static("Settings", id="settings-title")
-        # Only the fields scroll. The buttons below stay put, so Save is
-        # always reachable however short the window is.
         with VerticalScroll(id="settings-body"):
-
             with Vertical(classes="setting"):
                 yield Label("Save downloads to")
                 yield Input(id="set-folder", placeholder="Choose a folder")
@@ -113,7 +103,6 @@ class SettingsScreen(SizeAware, Screen):
         self._fill(self._config)
         self.query_one("#set-folder", Input).focus()
 
-    # -- moving values in and out of the widgets -------------------------
     def _fill(self, cfg):
         self.query_one("#set-folder", Input).value = str(cfg["output_dir"])
         self.query_one("#set-parallel", Input).value = str(cfg["max_parallel"])
@@ -135,7 +124,7 @@ class SettingsScreen(SizeAware, Screen):
         widget = self.query_one(selector, Select)
         try:
             widget.value = value
-        except Exception:                              # noqa: BLE001
+        except Exception:
             widget.value = fallback
 
     def _clear_errors(self):
@@ -145,9 +134,7 @@ class SettingsScreen(SizeAware, Screen):
             self.query_one(field, Input).remove_class("-invalid")
         self.query_one("#settings-message", Static).update("")
 
-    # -- validation ------------------------------------------------------
     def _collect(self):
-        """Read the widgets. Returns (config, errors)."""
         errors = {}
 
         folder_raw = self.query_one("#set-folder", Input).value.strip()
@@ -192,7 +179,6 @@ class SettingsScreen(SizeAware, Screen):
         })
         return config, errors
 
-    # -- actions ---------------------------------------------------------
     def action_save(self) -> None:
         self._save()
 

@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""
-Adversarial checks against Luma.
-
-Nothing here is new protection -- it was built in as each part was written.
-This suite tries to defeat it: hostile links, hostile folders, damaged files,
-a download killed mid-flight, and quitting while work is running.
-
-    python tests/test_security.py
-"""
-
 import asyncio
 import os
 import re
@@ -24,17 +14,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-from textual.widgets import Input, Static                 # noqa: E402
+from textual.widgets import Input, Static
 
-from luma.app import LumaApp                              # noqa: E402
-from luma.config import load_config, normalize, resolve_output_dir  # noqa: E402
-from luma.engine import download as dl                    # noqa: E402
-from luma.engine.callbacks import EngineCallbacks         # noqa: E402
-from luma.engine.errors import InvalidURLError, UnsafePathError  # noqa: E402
-from luma.engine.inputs import gather_inputs, validate_url  # noqa: E402
-from luma.engine.paths import safe_join                   # noqa: E402
-from luma.history import recent_downloads, recent_failures  # noqa: E402
-from luma.storage import safe_read_json                   # noqa: E402
+from luma.app import LumaApp
+from luma.config import load_config, normalize, resolve_output_dir
+from luma.engine import download as dl
+from luma.engine.callbacks import EngineCallbacks
+from luma.engine.errors import InvalidURLError, UnsafePathError
+from luma.engine.inputs import gather_inputs, validate_url
+from luma.engine.paths import safe_join
+from luma.history import recent_downloads, recent_failures
+from luma.storage import safe_read_json
 
 _failures = []
 
@@ -46,8 +36,6 @@ def check(label, condition, detail=""):
         print(f"  FAIL  {label}  {detail}")
         _failures.append(label)
 
-
-# --------------------------------------------------------------------------- #
 
 def test_no_shell_execution():
     print("\n[1. commands are never handed to a shell]")
@@ -72,7 +60,6 @@ def test_no_shell_execution():
         hits = [p for p, s in sources if re.search(pattern, s)]
         check(f"no {label} anywhere", not hits, str(hits))
 
-    # Every subprocess invocation must receive a list, not a string.
     bad = []
     for path, src in sources:
         for match in re.finditer(r"subprocess\.(run|Popen|call)\(\s*([^\s,)]+)",
@@ -105,7 +92,6 @@ def test_hostile_links_refused():
         except InvalidURLError:
             check(f"refuses {url[:38]!r}", True)
 
-    # Even mixed in with a good link, the bad ones must not survive.
     urls, rejected = gather_inputs(
         ["https://youtu.be/good", "file:///etc/passwd", "javascript:x"]
     )
@@ -116,8 +102,6 @@ def test_hostile_links_refused():
 
 def test_argument_injection_cannot_reach_the_tool():
     print("\n[3. a link cannot smuggle in extra options]")
-    # A URL that looks like a flag must never be accepted, since it would
-    # otherwise be appended to the command as an argument.
     for sneaky in ["--exec=rm -rf /", "-o /etc/passwd", "--paths=/etc"]:
         try:
             validate_url(sneaky)
@@ -135,9 +119,6 @@ def test_argument_injection_cannot_reach_the_tool():
     check("the link appears exactly once",
           sum(1 for a in cmd if a == url) == 1)
 
-    # A link may legitimately contain characters a shell would treat as
-    # commands. They are harmless here because no shell is ever involved --
-    # proven by running the command for real and checking a canary file.
     with tempfile.TemporaryDirectory() as td:
         canary = os.path.join(td, "canary.txt")
         with open(canary, "w") as fh:
@@ -210,7 +191,7 @@ def test_damaged_files_survived():
                 recent_downloads(path=hist)
                 recent_failures(path=errs)
                 safe_read_json(cfg, {})
-            except Exception as exc:                      # noqa: BLE001
+            except Exception as exc:
                 ok = False
                 print(f"        raised: {exc!r}")
             check(f"{name} content is absorbed", ok)
@@ -243,8 +224,6 @@ async def test_damaged_files_still_let_the_app_start():
                   app.screen.query_one("#set-folder", Input) is not None)
 
 
-# --------------------------------------------------------------------------- #
-
 FAKE = textwrap.dedent('''
     #!@PYTHON@
     import os, sys, time
@@ -265,13 +244,12 @@ def make_fake(tmpdir):
 
 
 def _descendants():
-    """Any downloader-like processes still running under this test."""
     try:
         out = subprocess.run(
             ["ps", "-o", "pid=,command=", "--ppid", str(os.getpid())],
             capture_output=True, text=True, timeout=10,
         ).stdout
-    except Exception:                                      # noqa: BLE001
+    except Exception:
         return []
     return [ln for ln in out.splitlines() if "slow_dl" in ln]
 

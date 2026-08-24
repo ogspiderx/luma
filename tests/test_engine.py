@@ -1,17 +1,6 @@
 #!/usr/bin/env python3
-"""
-Automated checks for Luma's engine. No UI involved.
-
-Covers the pure logic (planning maths, parsing, validation, path safety) and
-the process machinery (streaming, retry, cancellation, error isolation) by
-driving a stand-in downloader that emits real captured yt-dlp/aria2c output.
-
-    python tests/test_engine.py
-"""
-
 import os
 import stat
-import subprocess
 import sys
 import tempfile
 import textwrap
@@ -20,14 +9,14 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from luma.engine import download as dl                      # noqa: E402
-from luma.engine.callbacks import EngineCallbacks           # noqa: E402
-from luma.engine.errors import InvalidURLError, UnsafePathError  # noqa: E402
-from luma.engine.inputs import (                            # noqa: E402
+from luma.engine import download as dl
+from luma.engine.callbacks import EngineCallbacks
+from luma.engine.errors import InvalidURLError, UnsafePathError
+from luma.engine.inputs import (
     _is_playlist_like, gather_inputs, validate_url,
 )
-from luma.engine.paths import safe_join, validate_output_dir  # noqa: E402
-from luma.engine.plan import apply_overrides, compute_plan, default_plan  # noqa: E402
+from luma.engine.paths import safe_join, validate_output_dir
+from luma.engine.plan import apply_overrides, compute_plan, default_plan
 
 _failures = []
 
@@ -40,13 +29,6 @@ def check(label, condition, detail=""):
         _failures.append(label)
 
 
-# --------------------------------------------------------------------------- #
-#  A stand-in downloader that replays real tool output.                        #
-# --------------------------------------------------------------------------- #
-
-# A stand-in that ignores yt-dlp's real arguments and replays captured output.
-# Mode and target come from the environment so it can be dropped in wherever
-# the real yt-dlp path would go.
 FAKE_SCRIPT = textwrap.dedent('''
     #!@PYTHON@
     import os, sys, time
@@ -73,7 +55,6 @@ FAKE_SCRIPT = textwrap.dedent('''
 
 
 def make_fake(tmpdir, name="fake_dl.py"):
-    """Write an executable stand-in downloader that ignores its arguments."""
     path = os.path.join(tmpdir, name)
     with open(path, "w") as fh:
         fh.write(FAKE_SCRIPT.replace("@PYTHON@", sys.executable).lstrip())
@@ -82,13 +63,11 @@ def make_fake(tmpdir, name="fake_dl.py"):
 
 
 def fake_tools(fake_path):
-    """A tools dict whose downloader is the stand-in."""
     return {"yt-dlp": fake_path, "aria2c": "aria2c",
             "ffmpeg": "/usr/bin/ffmpeg", "ffprobe": "/usr/bin/ffprobe"}
 
 
 def collector():
-    """An EngineCallbacks that records everything, for assertions."""
     rec = {"status": [], "progress": [], "done": [], "start": []}
     return rec, EngineCallbacks(
         on_status=lambda m: rec["status"].append(m),
@@ -98,8 +77,6 @@ def collector():
         on_video_done=lambda t, u, ok, r, f: rec["done"].append((ok, r, f)),
     )
 
-
-# --------------------------------------------------------------------------- #
 
 def test_plan_maths():
     print("\n[planning maths]")
@@ -236,7 +213,6 @@ def test_streaming_and_retry():
         target = os.path.join(td, "Fake Video [abc123].mp4")
         os.environ["LUMA_FAKE_OUT"] = target
 
-        # --- success path, through the real build_cmd ---
         os.environ["LUMA_FAKE_MODE"] = "ok"
         dl.reset_cancel()
         rec, cb = collector()
@@ -245,11 +221,7 @@ def test_streaming_and_retry():
         check("successful run returns rc 0", rc == 0, f"rc={rc} {reason}")
         check("progress reached the callbacks", len(rec["progress"]) >= 1)
         check("final merged path captured", path == target, str(path))
-        # Updates are deliberately throttled to ~4/sec so a fast download
-        # cannot flood the UI, so not every emitted line arrives.
         first = rec["progress"][0]
-        # The stand-in announces two streams ("135+140"), as a real 480p
-        # video has, so a quarter of the first stream is an eighth overall.
         check("percent covers the whole video, not one stream",
               first["percent"] == 12.5, str(first["percent"]))
         check("connection count parsed", first["connections"] == 16)
@@ -257,7 +229,6 @@ def test_streaming_and_retry():
               len(rec["progress"]) < 3, str(len(rec["progress"])))
         check("milestones surfaced to the user", len(rec["status"]) >= 1)
 
-        # --- failure is translated, not raw ---
         os.environ["LUMA_FAKE_MODE"] = "fail"
         dl.reset_cancel()
         rec, cb = collector()
@@ -269,7 +240,6 @@ def test_streaming_and_retry():
               "traceback" not in reason.lower()
               and "yt-dlp" not in reason.lower())
 
-        # --- a private video is explained, not dumped ---
         os.environ["LUMA_FAKE_MODE"] = "private"
         dl.reset_cancel()
         _, cb = collector()
@@ -277,7 +247,6 @@ def test_streaming_and_retry():
         check("private video explained plainly",
               "private" in reason.lower(), reason)
 
-        # --- retry loop retries with backoff, then gives up ---
         os.environ["LUMA_FAKE_MODE"] = "fail"
         dl.reset_cancel()
         rec, cb = collector()
@@ -293,7 +262,6 @@ def test_streaming_and_retry():
         check("backoff actually waited (2+4+6s)", elapsed >= 11, f"{elapsed:.1f}s")
         check("reported failure once finished", len(rec["done"]) == 1)
 
-        # --- success reports the file path for the history log ---
         os.environ["LUMA_FAKE_MODE"] = "ok"
         dl.reset_cancel()
         rec, cb = collector()
@@ -303,7 +271,6 @@ def test_streaming_and_retry():
         check("succeeds on first try", ok is True)
         check("file path returned for history", fp == target, str(fp))
 
-        # --- error isolation: a failing item never sinks the batch ---
         os.environ["LUMA_FAKE_MODE"] = "fail"
         dl.reset_cancel()
         rec, cb = collector()
@@ -325,7 +292,7 @@ def test_cancellation():
     print("\n[cancellation - no orphaned processes]")
     with tempfile.TemporaryDirectory() as td:
         fake = make_fake(td)
-        os.environ["LUMA_FAKE_MODE"] = "hang"   # stays alive until terminated
+        os.environ["LUMA_FAKE_MODE"] = "hang"
         dl.reset_cancel()
         rec, cb = collector()
         result = {}

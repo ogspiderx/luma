@@ -1,17 +1,8 @@
-"""
-Finding out what a link is actually available in.
-
-Used when the person has asked to choose the quality themselves: rather than
-offering a fixed list and failing later, Luma asks the site what it has and
-offers only that.
-"""
-
 import json
 import subprocess
 
 from .callbacks import EngineCallbacks
 
-#: Heights worth naming, largest first. Anything taller is called by its number.
 _LABELS = {
     2160: "4K",
     1440: "1440p",
@@ -25,7 +16,6 @@ _LABELS = {
 
 
 def describe_height(height):
-    """A friendly name for a video height."""
     try:
         value = int(height)
     except (TypeError, ValueError):
@@ -34,7 +24,6 @@ def describe_height(height):
 
 
 def size_note(bytes_estimate):
-    """Roughly how big, for the chooser. Empty when it cannot be told."""
     if not bytes_estimate:
         return ""
     value = float(bytes_estimate)
@@ -47,16 +36,6 @@ def size_note(bytes_estimate):
 
 
 def available_qualities(ytdlp, url, callbacks=None, timeout=45):
-    """Ask the site what this link can be downloaded in.
-
-    Returns (title, choices) where each choice is
-    {height, label, note, filesize} sorted best first. On any failure the
-    choices come back empty and the caller should fall back to its setting
-    rather than treating it as an error.
-
-    Several of these run side by side, so a link that is slow to answer is
-    told to give up quickly rather than holding up the ones behind it.
-    """
     callbacks = callbacks or EngineCallbacks()
     callbacks.on_status("Checking what qualities are available...")
 
@@ -69,7 +48,7 @@ def available_qualities(ytdlp, url, callbacks=None, timeout=45):
         if out.returncode != 0 or not out.stdout.strip():
             return "", []
         info = json.loads(out.stdout)
-    except Exception:                                  # noqa: BLE001
+    except Exception:
         return "", []
 
     title = info.get("title") or ""
@@ -77,14 +56,12 @@ def available_qualities(ytdlp, url, callbacks=None, timeout=45):
     if not isinstance(formats, list):
         return title, []
 
-    # Keep the best-looking option at each height, measured by file size so
-    # the estimate shown to the person is the one they would actually get.
     best_at = {}
     for entry in formats:
         if not isinstance(entry, dict):
             continue
         if entry.get("vcodec") in (None, "none"):
-            continue                                   # sound only
+            continue
         height = entry.get("height")
         if not height:
             continue
@@ -93,8 +70,6 @@ def available_qualities(ytdlp, url, callbacks=None, timeout=45):
         if current is None or size > current:
             best_at[height] = size
 
-    # Sound is fetched alongside the picture, so add a rough allowance to the
-    # estimate rather than quoting only half of what will be downloaded.
     audio_size = 0
     for entry in formats:
         if not isinstance(entry, dict):

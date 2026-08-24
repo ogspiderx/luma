@@ -1,14 +1,3 @@
-"""
-The download engine: build the command, run it, parse its output, retry it.
-
-Ported from yt_turbo.py. The structure of _stream_download (Popen + line loop
-+ tail deque) and the retry/backoff in download_one are deliberately unchanged;
-only the reporting is different -- prints became callbacks.
-
-Every child process is registered while it runs so the app can shut them all
-down cleanly on quit instead of leaving orphans behind.
-"""
-
 import collections
 import concurrent.futures as futures
 import os
@@ -21,23 +10,16 @@ from .callbacks import EngineCallbacks
 from .constants import MAX_ATTEMPTS
 from .paths import title_from_filename
 
-# --------------------------------------------------------------------------- #
-#  Child-process registry -- so quitting never leaves orphans running.         #
-# --------------------------------------------------------------------------- #
 
 _active_procs = set()
 _procs_lock = threading.Lock()
 
-#: Set to request that all in-flight downloads stop as soon as they can.
 _cancel_event = threading.Event()
 
-#: Individual downloads asked to stop, by tag, so one can be dropped without
-#: disturbing the others.
 _cancelled_tags = set()
 
 
 def cancel_tag(tag):
-    """Ask one download to stop, leaving the rest running."""
     with _procs_lock:
         _cancelled_tags.add(tag)
 
@@ -58,12 +40,10 @@ def _unregister(proc):
 
 
 def request_cancel():
-    """Ask every running download to stop."""
     _cancel_event.set()
 
 
 def reset_cancel():
-    """Clear any cancel requests before starting new work."""
     _cancel_event.clear()
     with _procs_lock:
         _cancelled_tags.clear()
@@ -74,7 +54,6 @@ def is_cancelled():
 
 
 def terminate_all(timeout=5):
-    """Stop every child process this engine started. Safe to call twice."""
     _cancel_event.set()
     with _procs_lock:
         procs = list(_active_procs)
@@ -97,16 +76,10 @@ def terminate_all(timeout=5):
         _active_procs.clear()
 
 
-# --------------------------------------------------------------------------- #
-#  Clearing up half-finished files                                             #
-# --------------------------------------------------------------------------- #
-
-#: What the download tools leave behind while a file is still arriving.
 _LEFTOVERS = (".part", ".aria2", ".ytdl", ".temp")
 
 
 def _video_id(text):
-    """The "[abcdefghijk]" id out of a filename or a link, if there is one."""
     match = re.search(r"\[([A-Za-z0-9_-]{11})\]", str(text or ""))
     if match:
         return match.group(1)
@@ -116,15 +89,6 @@ def _video_id(text):
 
 
 def clean_partials(output_dir, marker=None):
-    """Delete the half-finished pieces a download leaves behind.
-
-    `marker` is a video id or a path containing one, so only that video's
-    remnants go. Without it, every leftover in the folder is cleared.
-
-    Only ever call this once a download is finished with, or has been
-    deliberately abandoned: while one is still going, these files are what
-    lets it pick up where it left off.
-    """
     video_id = _video_id(marker) if marker else ""
     removed = 0
     try:
@@ -141,21 +105,12 @@ def clean_partials(output_dir, marker=None):
             os.remove(os.path.join(output_dir, name))
             removed += 1
         except OSError:
-            pass        # in use, or already gone; not worth complaining about
+            pass
     return removed
 
 
-# --------------------------------------------------------------------------- #
-#  Command construction                                                        #
-# --------------------------------------------------------------------------- #
-
 def build_cmd(tools, url, plan, output_dir, quality, downloader="aria2c",
               archive=False):
-    """Build the yt-dlp argument list. Always a list -- never a shell string."""
-    # Sound first, then picture. The streams are fetched in the order named
-    # here, and sound is much the smaller of the two, so putting it first
-    # gets one part of the video finished quickly and each stream gets the
-    # whole connection to itself rather than sharing it.
     if str(quality).lower() == "best":
         fmt = "ba+bv*/b/best"
     else:
@@ -169,19 +124,19 @@ def build_cmd(tools, url, plan, output_dir, quality, downloader="aria2c",
     cmd = [
         tools["yt-dlp"],
         "-f", fmt,
-        "-S", "res,ext:mp4:m4a,codec:h264",   # prefer mp4/h264 near the cap
+        "-S", "res,ext:mp4:m4a,codec:h264",
         "--merge-output-format", "mp4",
         "--ffmpeg-location", os.path.dirname(tools["ffmpeg"]),
         "-o", out_tmpl,
-        "--no-playlist",                       # already expanded ourselves
+        "--no-playlist",
         "--concurrent-fragments", str(plan["concurrent_fragments"]),
         "--retries", "10",
         "--fragment-retries", "10",
         "--file-access-retries", "5",
         "--retry-sleep", "2",
-        "--throttled-rate", "100K",            # re-extract if YouTube throttles
+        "--throttled-rate", "100K",
         "--no-mtime",
-        "--newline",                           # clean progress when parallel
+        "--newline",
         "--no-warnings",
     ]
 
@@ -206,29 +161,19 @@ def build_cmd(tools, url, plan, output_dir, quality, downloader="aria2c",
     return cmd
 
 
-# --------------------------------------------------------------------------- #
-#  Output parsing                                                              #
-# --------------------------------------------------------------------------- #
-
-# aria2c compact line: [#a1b2c3 46MiB/54MiB(85%) CN:4 DL:698KiB ETA:11s]
-# The leading id matters: aria2c prints one of these per download it has in
-# flight, so without it several concurrent pieces look like one thrashing file.
 _ARIA_RE = re.compile(
     r"\[#(\w+)\s+([\d.]+[KMGTP]?i?B)/([\d.]+[KMGTP]?i?B)\((\d+)%\)"
     r"\s+CN:(\d+)\s+DL:([\d.]+[KMGTP]?i?B)(?:\s+ETA:(\S+?))?\]")
-# yt-dlp native: [download]  85.0% of 54.00MiB at 700.00KiB/s ETA 00:19
 _YTDL_RE = re.compile(
     r"\[download\]\s+([\d.]+)%\s+of\s+~?\s*([\d.]+[KMGTP]?i?B)"
     r"(?:\s+at\s+([\d.]+[KMGTP]?i?B/s))?(?:\s+ETA\s+(\S+))?")
 
 
-#: "40MiB", "54.2MB", "900KiB" -> bytes.
 _SIZE = re.compile(r"([\d.]+)\s*([KMGT]?)i?B", re.IGNORECASE)
 _SCALE = {"": 1, "K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
 
 
 def size_to_bytes(text):
-    """Turn a size like '54MiB' into bytes, or 0 when it cannot be read."""
     match = _SIZE.search(text or "")
     if not match:
         return 0
@@ -238,34 +183,21 @@ def size_to_bytes(text):
         return 0
 
 
-#: A sane countdown: "19s", "1m30s", "00:19", "1:02:03".
 _ETA_OK = re.compile(r"^\d+(?:[hms]\d*)*$|^\d+(?::\d{2}){1,2}$", re.IGNORECASE)
 
 
 def _clean_eta(text):
-    """Return a trustworthy time-remaining string, or nothing.
-
-    The tools occasionally emit a negative or nonsensical estimate while they
-    are still working one out. Showing nothing beats showing "-1s".
-    """
     value = (text or "").strip()
     if not value or value.startswith("-") or value.lower() in ("unknown", "n/a"):
         return ""
     if not _ETA_OK.match(value):
         return ""
-    # A countdown of a day or more is a guess, not information.
     if re.match(r"^\d+:\d{2}:\d{2}$", value) and int(value.split(":")[0]) >= 24:
         return ""
     return value
 
 
 def parse_progress(line):
-    """Parse a progress line into a dict, or None if it isn't one.
-
-    This describes one *stream*. A video at 480p is delivered as two of them
-    (picture and sound), so these numbers are combined into whole-video
-    figures by _overall() before they reach the interface.
-    """
     m = _ARIA_RE.search(line)
     if m:
         gid, done, tot, pct, cn, spd, eta = m.groups()
@@ -299,7 +231,6 @@ def parse_progress(line):
 
 
 def _friendly_error(text):
-    """Translate a raw tool error into something a normal person can act on."""
     low = text.lower()
     if "private video" in low or "sign in" in low:
         return "This video is private."
@@ -322,7 +253,6 @@ def _friendly_error(text):
 
 
 def _milestone(line):
-    """Friendly one-off status text for an interesting line, else None."""
     s = line.strip()
     if s.startswith("[download] Destination:"):
         path = s.split("Destination:", 1)[1].strip()
@@ -339,7 +269,7 @@ def _milestone(line):
     low = s.lower()
     if s.startswith("ERROR") or "error:" in low:
         return _friendly_error(s)
-    return None   # tool chatter and summary noise -> hidden
+    return None
 
 
 _DEST_RE = re.compile(r"\[download\] Destination:\s*(.+)$")
@@ -348,7 +278,6 @@ _ALREADY_RE = re.compile(r"\[download\]\s*(.+?)\s+has already been downloaded")
 
 
 def _track_filepath(line, state):
-    """Remember where the finished file ended up, for the history log."""
     m = _MERGE_RE.search(line)
     if m:
         state["filepath"] = m.group(1).strip()
@@ -362,18 +291,14 @@ def _track_filepath(line, state):
         state["destination"] = m.group(1).strip()
 
 
-#: "[info] abc: Downloading 1 format(s): 135+140" -> two streams.
 _FORMATS_RE = re.compile(r"Downloading\s+\d+\s+format\(s\):\s*([\w+]+)")
 
-#: ".f135." in a filename marks one stream of a video built from several.
 _FORMAT_MARKER = re.compile(r"\.f\d+\.")
 
-#: Sound-only containers, so a stream can be named for what it carries.
 _AUDIO_EXTENSIONS = (".m4a", ".opus", ".ogg", ".oga", ".mp3", ".aac", ".wav")
 
 
 def _stream_kind(path):
-    """Say whether a stream is the sound or the picture, from its filename."""
     name = re.split(r"[\\/]", str(path or "").strip())[-1].lower()
     if not name:
         return ""
@@ -381,19 +306,10 @@ def _stream_kind(path):
         return "Sound"
     if _FORMAT_MARKER.search(name):
         return "Picture"
-    return ""      # a single combined file is just "the video"
+    return ""
 
 
 def _track_streams(line, state):
-    """Follow which of a video's streams is being fetched.
-
-    A video is usually delivered as a picture stream followed by a sound
-    stream. Each reports its own size and percentage, so without this the
-    figures appear to jump backwards when the second one starts.
-
-    Only a new destination begins a stream. Merging is not a download, so it
-    must not advance the count.
-    """
     m = _FORMATS_RE.search(line)
     if m:
         declared = max(1, len(m.group(1).split("+")))
@@ -404,16 +320,11 @@ def _track_streams(line, state):
     if not dest:
         return
 
-    # A name like "Title [id].f135.mp4" is a single stream of a video that
-    # will be assembled from several, so a second one is coming even if it was
-    # never announced. Knowing that up front avoids the bar reaching the end
-    # and then having to come back.
     if _FORMAT_MARKER.search(dest.group(1)):
         state["streams_total"] = max(2, state.get("streams_total", 1))
     state["stream_kind"] = _stream_kind(dest.group(1))
 
     if state.get("stream_started"):
-        # Bank the stream that just finished so its bytes keep counting.
         pieces = state.get("pieces") or {}
         state["done_base"] = (state.get("done_base", 0)
                               + sum(t for _, t in pieces.values()))
@@ -421,25 +332,16 @@ def _track_streams(line, state):
     state["stream_started"] = True
     state["pieces"] = {}
 
-    # If more streams turn up than were announced, believe what is happening
-    # rather than the announcement -- this is what kept the bar past its end.
     needed = state.get("stream_index", 0) + 1
     if needed > state.get("streams_total", 1):
         state["streams_total"] = needed
-        state["percent_seen"] = 0.0    # the scale changed; let it re-settle
+        state["percent_seen"] = 0.0
 
 
 def _overall(state, parsed):
-    """Turn stream readings into figures for the whole video.
-
-    aria2c reports each piece it has in flight separately, so the pieces are
-    summed rather than treated as competing views of the same file. The result
-    is clamped and cannot run past the end.
-    """
     streams = max(1, state.get("streams_total", 1))
     index = max(0, min(state.get("stream_index", 0), streams - 1))
 
-    # Remember this piece and add up everything in flight for this stream.
     pieces = state.setdefault("pieces", {})
     pieces[parsed.get("id") or "download"] = (
         parsed["done_bytes"], parsed["total_bytes"],
@@ -448,8 +350,6 @@ def _overall(state, parsed):
     stream_total = sum(t for _, t in pieces.values())
 
     if len(pieces) == 1 and parsed["percent"]:
-        # One piece in flight: its own percentage is exact, where the sizes it
-        # prints are rounded for display and drift by a percent or so.
         fraction = parsed["percent"] / 100.0
     elif stream_total > 0:
         fraction = stream_done / stream_total
@@ -461,8 +361,6 @@ def _overall(state, parsed):
 
     percent = (index + fraction) / streams * 100.0
     percent = max(0.0, min(100.0, percent))
-    # Resist small backwards steps without letting the bar seize up: a genuine
-    # move of more than a couple of percent is believed.
     previous = state.get("percent_seen", 0.0)
     if percent < previous - 2.0:
         state["percent_seen"] = percent
@@ -490,7 +388,6 @@ def _overall(state, parsed):
 
 
 def _track_title(state, tag, callbacks):
-    """Report the video's title the first time it can be read off the file."""
     if state.get("title_sent"):
         return
     title = title_from_filename(
@@ -502,13 +399,8 @@ def _track_title(state, tag, callbacks):
         callbacks.on_video_title(tag, title)
 
 
-# --------------------------------------------------------------------------- #
-#  Running one download                                                        #
-# --------------------------------------------------------------------------- #
-
 def _stream_download(cmd, tag, callbacks):
-    """Run one yt-dlp invocation. Returns (rc, reason, filepath)."""
-    tail = collections.deque(maxlen=25)   # recent output, for error reports
+    tail = collections.deque(maxlen=25)
     last_progress = 0.0
     state = {}
 
@@ -544,14 +436,13 @@ def _stream_download(cmd, tag, callbacks):
             if parsed is not None:
                 parsed = _overall(state, parsed)
                 now = time.time()
-                if now - last_progress >= 0.25:   # throttle UI updates
+                if now - last_progress >= 0.25:
                     last_progress = now
                     callbacks.on_video_progress(tag, parsed)
                 continue
 
             note = _milestone(line)
             if note is not None and note != state.get("last_note"):
-                # Saying the same thing twice in a row reads as being stuck.
                 state["last_note"] = note
                 callbacks.on_video_status(tag, note)
 
@@ -576,7 +467,6 @@ def _stream_download(cmd, tag, callbacks):
 
 def download_one(tools, url, plan, output_dir, quality, downloader, archive,
                  index, total, callbacks, tag=None):
-    """Download one video, retrying transient failures. Resumes each attempt."""
     tag = tag if tag is not None else f"{index}/{total}"
     callbacks.on_video_start(tag, url)
     cmd = build_cmd(tools, url, plan, output_dir, quality, downloader, archive)
@@ -590,12 +480,10 @@ def download_one(tools, url, plan, output_dir, quality, downloader, archive,
 
         rc, reason, filepath = _stream_download(cmd, tag, callbacks)
         if rc == 0:
-            # The finished file is written; the pieces are only clutter now.
             clean_partials(output_dir, filepath or url)
             callbacks.on_video_done(tag, url, True, "", filepath)
             return (url, True, "", filepath)
         if rc == 130:
-            # Deliberately stopped, so this is not going to be resumed.
             clean_partials(output_dir, filepath or url)
             callbacks.on_video_done(tag, url, False, "Stopped.", filepath)
             return (url, False, "Stopped.", filepath)
@@ -606,7 +494,6 @@ def download_one(tools, url, plan, output_dir, quality, downloader, archive,
                 tag, f"Hit a problem - retrying in {wait}s "
                      f"(try {attempt + 1} of {MAX_ATTEMPTS})..."
             )
-            # Sleep in slices so a cancel is noticed promptly.
             for _ in range(int(wait * 4)):
                 if _cancel_event.is_set() or is_tag_cancelled(tag):
                     break
@@ -618,14 +505,6 @@ def download_one(tools, url, plan, output_dir, quality, downloader, archive,
 
 def run_downloads(tools, urls, plan, output_dir, quality, downloader="aria2c",
                   archive=False, callbacks=None, tags=None):
-    """Download every URL, fanning out to plan['parallel_files'] at a time.
-
-    One failure never stops the others. Returns a list of
-    (url, ok, reason, filepath) tuples.
-
-    `tags` optionally names each download, so a caller that is already showing
-    a numbered list can keep its own numbering instead of restarting at one.
-    """
     callbacks = callbacks or EngineCallbacks()
     os.makedirs(output_dir, exist_ok=True)
 
@@ -647,6 +526,5 @@ def run_downloads(tools, urls, plan, output_dir, quality, downloader="aria2c",
             try:
                 results.append(fut.result())
             except Exception as exc:
-                # Error isolation: a crash in one item must not sink the batch.
                 results.append((url, False, f"Unexpected problem ({exc}).", None))
     return results

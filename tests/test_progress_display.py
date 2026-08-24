@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-"""
-Checks for what a download looks like while it runs.
-
-A video at 480p arrives as two streams, picture then sound, each reporting its
-own size and percentage. These checks hold the combined figures to the one
-rule that matters: they only ever move forwards.
-
-Also covers the Stop and Clear controls, and that the tools and speed reading
-are prepared once at startup rather than before every download.
-
-    python tests/test_progress_display.py
-"""
-
 import asyncio
 import os
 import sys
@@ -19,14 +6,14 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from textual.containers import VerticalScroll               # noqa: E402
-from textual.widgets import Button, Input, Static           # noqa: E402
+from textual.containers import VerticalScroll
+from textual.widgets import Button, Input, Static
 
-from luma.app import LumaApp                                # noqa: E402
-from luma.engine.download import (                          # noqa: E402
+from luma.app import LumaApp
+from luma.engine.download import (
     _overall, _track_filepath, _track_streams, parse_progress, size_to_bytes,
 )
-from luma.widgets.download_row import DownloadRow           # noqa: E402
+from luma.widgets.download_row import DownloadRow
 
 _failures = []
 
@@ -47,7 +34,6 @@ def text_of(widget):
     return str(widget.render())
 
 
-#: A realistic transcript: picture stream, then sound stream.
 TWO_STREAM = [
     "[info] abc: Downloading 1 format(s): 135+140",
     "[download] Destination: /d/Clip [dQw4w9WgXcQ].f135.mp4",
@@ -63,7 +49,6 @@ TWO_STREAM = [
 
 
 def replay(lines):
-    """Feed a transcript through the engine's parsing, collecting readings."""
     state, readings = {}, []
     for line in lines:
         _track_streams(line, state)
@@ -197,14 +182,12 @@ async def test_stop_and_clear_visibility():
         check("Stop is hidden before anything starts", stop.display is False)
         check("Clear is hidden before anything starts", clear.display is False)
 
-        # Pretend a download is running.
         screen._download_active = True
         screen._refresh_buttons()
         await pilot.pause()
         check("Stop appears while running", stop.display is True)
         check("Clear stays hidden while running", clear.display is False)
 
-        # A row finishes, but the batch is still going.
         holder = screen.query_one("#downloads", VerticalScroll)
         row = DownloadRow("1", "https://youtu.be/a")
         holder.mount(row)
@@ -217,7 +200,6 @@ async def test_stop_and_clear_visibility():
               clear.display is False)
         check("Stop is still offered", stop.display is True)
 
-        # The batch ends.
         screen._download_active = False
         screen._refresh_buttons()
         await pilot.pause()
@@ -272,7 +254,6 @@ async def test_preparation_happens_once():
         with tempfile.TemporaryDirectory() as td:
             app = LumaApp(config_path=os.path.join(td, "config.json"))
             async with app.run_test() as pilot:
-                # Wait for the startup preparation to settle.
                 for _ in range(100):
                     if app.tools and app.bandwidth:
                         break
@@ -290,7 +271,6 @@ async def test_preparation_happens_once():
                     "conns_per_file": None, "archive": False,
                     "run_speedtest": True,
                 }
-                # Two downloads in a row must not repeat either step.
                 for link in ("https://youtu.be/aaaaaaaaaaa",
                              "https://youtu.be/bbbbbbbbbbb"):
                     screen.query_one("#url-input", Input).value = link
@@ -366,14 +346,8 @@ def test_blocked_speedtest_is_not_retried():
 
 
 def test_never_runs_past_the_end():
-    """The bar reached several hundred percent and then seized up.
-
-    It happened when the streams were not announced up front: each new stream
-    pushed the count higher than the scale it was being divided by.
-    """
     print("\n[the bar cannot run past the end]")
 
-    # No "format(s)" line at all -- the shape that misbehaved.
     unannounced = [
         "[download] Destination: /d/C [dQw4w9WgXcQ].f135.mp4",
         "[#a1 25MiB/50MiB(50%) CN:16 DL:900KiB ETA:28s]",
@@ -391,7 +365,6 @@ def test_never_runs_past_the_end():
           all(b >= a for a, b in zip(percents, percents[1:])), str(percents))
     check("and it does reach the end", percents[-1] == 100.0, str(percents[-1]))
 
-    # Far more streams than announced, which is what inflated the scale.
     lines = ["[info] a: Downloading 1 format(s): 135"]
     for n in range(5):
         lines.append(f"[download] Destination: /d/C [dQw4w9WgXcQ].f{130 + n}.mp4")
@@ -405,7 +378,6 @@ def test_never_runs_past_the_end():
 
 
 def test_concurrent_pieces_are_added_up():
-    """aria2c reports each piece separately; they must not fight each other."""
     print("\n[concurrent pieces are summed, not swapped]")
     readings = replay([
         "[info] a: Downloading 1 format(s): 135",
@@ -430,7 +402,6 @@ def test_concurrent_pieces_are_added_up():
 
 
 def test_time_remaining_is_trustworthy():
-    """A countdown that reads '-1s' is worse than no countdown."""
     print("\n[time remaining is only shown when believable]")
     from luma.engine.download import _clean_eta
 
@@ -447,7 +418,6 @@ def test_time_remaining_is_trustworthy():
 
 
 def test_the_same_message_is_not_repeated():
-    """'Picking the best quality' appeared over and over."""
     print("\n[a message is not repeated back to back]")
     from luma.engine.callbacks import EngineCallbacks
     from luma.engine.download import _milestone

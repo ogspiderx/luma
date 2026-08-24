@@ -1,33 +1,26 @@
 #!/usr/bin/env python3
-"""
-Checks for Luma's own palette and for being asked which quality to use.
-
-    python tests/test_appearance_and_quality.py
-"""
-
 import asyncio
 import json
 import os
-import subprocess
 import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from textual.widgets import (                                     # noqa: E402
-    Button, Input, ProgressBar, Select, Static, Switch,
+from textual.widgets import (
+    Input, ProgressBar, Select, Static, Switch,
 )
 
-from luma.widgets.download_row import DownloadRow, QualityChip  # noqa: E402
+from luma.widgets.download_row import DownloadRow, QualityChip
 
-from luma.app import LumaApp                                    # noqa: E402
-from luma.config import DEFAULTS, load_config, normalize, save_config  # noqa: E402
-from luma.engine import formats as formats_mod                   # noqa: E402
-from luma.engine.formats import (                                # noqa: E402
+from luma.app import LumaApp
+from luma.config import DEFAULTS, load_config, normalize
+from luma.engine import formats as formats_mod
+from luma.engine.formats import (
     available_qualities, describe_height, size_note,
 )
-from luma.screens.settings import THEME_CHOICES                  # noqa: E402
-from luma.theme import DEFAULT_THEME, THEMES                     # noqa: E402
+from luma.screens.settings import THEME_CHOICES
+from luma.theme import DEFAULT_THEME, THEMES
 
 _failures = []
 
@@ -47,10 +40,6 @@ def text_of(widget):
             return str(value)
     return str(widget.render())
 
-
-# --------------------------------------------------------------------------- #
-#  Luma's own colours                                                         #
-# --------------------------------------------------------------------------- #
 
 def test_themes_are_well_formed():
     print("\n[Luma's own palette]")
@@ -114,10 +103,6 @@ async def test_theme_is_applied_and_offered():
     check("the names read as names, not codes",
           "textual-dark" not in labels and "catppuccin" not in labels, labels)
 
-
-# --------------------------------------------------------------------------- #
-#  finding out what a link offers                                             #
-# --------------------------------------------------------------------------- #
 
 FAKE_INFO = {
     "title": "A Test Video",
@@ -193,10 +178,6 @@ def test_failures_come_back_empty():
         ]}))
     check("sound only offers nothing", choices == [], str(choices))
 
-
-# --------------------------------------------------------------------------- #
-#  being asked                                                                #
-# --------------------------------------------------------------------------- #
 
 def test_the_setting_exists():
     print("\n[the setting]")
@@ -368,8 +349,6 @@ async def test_the_question_goes_away_when_answered():
         check("and the row no longer counts as asking", not row.choosing)
         check("the bar is back", row.query_one(ProgressBar).display)
 
-        # Progress arriving on its own takes the question away too, so a
-        # download that starts anyway never leaves a stale question behind.
         row.offer_choices([{"height": 480, "label": "480p", "note": ""}])
         await pilot.pause()
         row.set_progress({"percent": 10.0})
@@ -387,7 +366,7 @@ async def test_a_chosen_quality_is_carried_through():
             screen._queue_worker = lambda: None
 
             screen._enqueue(["https://youtu.be/aaa"], quality="720")
-            screen._enqueue(["https://youtu.be/bbb"])          # uses setting
+            screen._enqueue(["https://youtu.be/bbb"])
             await pilot.pause()
 
             with screen._queue_lock:

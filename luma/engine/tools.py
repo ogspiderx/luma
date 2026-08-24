@@ -1,11 +1,3 @@
-"""
-Locating (and on Windows, installing) the external tools Luma shells out to.
-
-Ported from yt_turbo.py's dependency management. Behaviour is unchanged except
-that progress is reported through callbacks instead of printed, and a missing
-tool on a non-Windows machine raises ToolInstallError instead of SystemExit.
-"""
-
 import os
 import shutil
 import ssl
@@ -18,14 +10,12 @@ from .callbacks import EngineCallbacks
 from .constants import ARIA2_URL, FFMPEG_URL, UA, YTDLP_URL
 from .errors import ToolInstallError
 
-#: Where portable Windows binaries get installed, alongside the app.
 BIN_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin"
 )
 
 
 def _download(url, dest, desc, callbacks):
-    """Stream a URL to disk, reporting progress through callbacks."""
     callbacks.on_status(f"Downloading {desc}...")
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     ctx = ssl.create_default_context()
@@ -50,7 +40,6 @@ def _download(url, dest, desc, callbacks):
 
 
 def _extract_members(zip_path, wanted, dest_dir):
-    """Pull specific file basenames out of a zip into dest_dir (flat)."""
     found = {}
     with zipfile.ZipFile(zip_path) as zf:
         for member in zf.namelist():
@@ -68,7 +57,6 @@ def _which(name):
 
 
 def _require_windows(tool):
-    """Raise a catchable, user-readable error instead of killing the process."""
     raise ToolInstallError(
         f"{tool} is not installed, and it can only be installed automatically "
         f"on Windows. Please install {tool} using your system's package "
@@ -77,13 +65,6 @@ def _require_windows(tool):
 
 
 def ensure_tools(callbacks=None):
-    """Return {'yt-dlp':path, 'aria2c':path, 'ffmpeg':path, 'ffprobe':path}.
-
-    Uses copies already on PATH when present; otherwise downloads portable
-    win64 builds into ./bin. Also prepends ./bin to PATH for this process.
-
-    Raises ToolInstallError if a tool is missing and cannot be installed.
-    """
     callbacks = callbacks or EngineCallbacks()
     os.makedirs(BIN_DIR, exist_ok=True)
     is_windows = os.name == "nt"
@@ -91,7 +72,6 @@ def ensure_tools(callbacks=None):
 
     tools = {}
 
-    # ---- yt-dlp -----------------------------------------------------------
     p = _which("yt-dlp") or _which("yt-dlp.exe")
     local = os.path.join(BIN_DIR, f"yt-dlp{exe}")
     if p:
@@ -104,7 +84,6 @@ def ensure_tools(callbacks=None):
         _download(YTDLP_URL, local, "the video downloader", callbacks)
         tools["yt-dlp"] = local
 
-    # ---- aria2c -----------------------------------------------------------
     p = _which("aria2c") or _which("aria2c.exe")
     local = os.path.join(BIN_DIR, f"aria2c{exe}")
     if p:
@@ -125,7 +104,6 @@ def ensure_tools(callbacks=None):
             )
         tools["aria2c"] = got["aria2c.exe"]
 
-    # ---- ffmpeg + ffprobe -------------------------------------------------
     ff = _which("ffmpeg") or _which("ffmpeg.exe")
     fp = _which("ffprobe") or _which("ffprobe.exe")
     local_ff = os.path.join(BIN_DIR, f"ffmpeg{exe}")
@@ -149,10 +127,8 @@ def ensure_tools(callbacks=None):
             )
         tools["ffmpeg"], tools["ffprobe"] = got["ffmpeg.exe"], got["ffprobe.exe"]
 
-    # Make the local bin visible to child processes too.
     os.environ["PATH"] = BIN_DIR + os.pathsep + os.environ.get("PATH", "")
 
-    # Keep yt-dlp fresh -- YouTube breaks it often; a stale copy = failures.
     _maybe_update_ytdlp(
         tools["yt-dlp"],
         local_managed=os.path.dirname(tools["yt-dlp"]) == BIN_DIR,
@@ -162,19 +138,15 @@ def ensure_tools(callbacks=None):
     return tools
 
 
-#: The update check is worth doing when Luma starts, not before every
-#: download -- it costs seconds and the answer cannot change in between.
 _update_checked = False
 
 
 def reset_update_state():
-    """Forget that the update check has run (used by the tests)."""
     global _update_checked
     _update_checked = False
 
 
 def _maybe_update_ytdlp(path, local_managed, callbacks):
-    """Best-effort self-update of the yt-dlp we manage, once per session."""
     global _update_checked
     if not local_managed or _update_checked:
         return
@@ -188,4 +160,4 @@ def _maybe_update_ytdlp(path, local_managed, callbacks):
             stderr=subprocess.DEVNULL,
         )
     except Exception:
-        pass  # not fatal
+        pass
