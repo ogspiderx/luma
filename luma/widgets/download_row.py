@@ -136,10 +136,12 @@ class DownloadRow(Widget):
         self._write(".row-detail", text)
 
     def set_waiting(self, position=None):
-        """Mark this row as queued behind others."""
+        """Mark this row as queued, and say where in the queue it is."""
         if self._finished or self._started:
             return
-        if position:
+        if position == 1:
+            self.set_detail("Next up")
+        elif position:
             self.set_detail(f"Waiting - number {position} in the queue")
         else:
             self.set_detail("Waiting...")

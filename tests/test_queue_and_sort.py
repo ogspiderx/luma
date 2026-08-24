@@ -390,10 +390,124 @@ async def test_sort_control_is_wired():
                   str(len(rows_of(screen))))
 
 
+async def test_queue_positions_stay_correct():
+    """Positions must follow the list, not the order things were added."""
+    print("\n[queue positions keep up with the list]")
+    with tempfile.TemporaryDirectory() as td:
+        app = LumaApp(config_path=os.path.join(td, "config.json"),
+                      auto_prepare=False)
+        async with app.run_test() as pilot:
+            screen = app.screen
+            screen._queue_worker = lambda: None      # hold the queue still
+
+            def detail(row):
+                return text_of(row.query_one(".row-detail", Static))
+
+            def positions():
+                return [detail(r) for r in rows_of(screen)]
+
+            screen.query_one("#url-input", Input).value = (
+                "https://youtu.be/aaa https://youtu.be/bbb https://youtu.be/ccc"
+            )
+            screen._start()
+            await pilot.pause()
+            check("the first says it is next",
+                  positions()[0] == "Next up", str(positions()))
+            check("the rest are numbered in order",
+                  "2" in positions()[1] and "3" in positions()[2],
+                  str(positions()))
+
+            # Adding more must not disturb the ones already waiting.
+            screen.query_one("#url-input", Input).value = "https://youtu.be/ddd"
+            screen._start()
+            await pilot.pause()
+            check("a new arrival goes on the end",
+                  "4" in positions()[3], str(positions()))
+            check("the earlier places are unchanged",
+                  positions()[0] == "Next up" and "2" in positions()[1],
+                  str(positions()))
+
+            note = text_of(screen.query_one("#queue-note", Static))
+            check("the count says four are waiting", "4 waiting" in note, note)
+
+            # Removing the first must move everyone up.
+            first = rows_of(screen)[0]
+            first.post_message(DownloadRow.RemoveRequested(first))
+            await pilot.pause()
+            await asyncio.sleep(0.1)
+            await pilot.pause()
+
+            check("three are left", len(rows_of(screen)) == 3,
+                  str(len(rows_of(screen))))
+            check("the one behind it is now next",
+                  positions()[0] == "Next up", str(positions()))
+            check("and the others moved up too",
+                  "2" in positions()[1] and "3" in positions()[2],
+                  str(positions()))
+            note = text_of(screen.query_one("#queue-note", Static))
+            check("the count came down to three", "3 waiting" in note, note)
+
+            # Removing from the middle must renumber what follows.
+            middle = rows_of(screen)[1]
+            middle.post_message(DownloadRow.RemoveRequested(middle))
+            await pilot.pause()
+            await asyncio.sleep(0.1)
+            await pilot.pause()
+
+            check("two are left", len(rows_of(screen)) == 2,
+                  str(len(rows_of(screen))))
+            check("the first is still next", positions()[0] == "Next up",
+                  str(positions()))
+            check("the one after the gap became number two",
+                  "2" in positions()[1], str(positions()))
+            check("no stale number is left behind",
+                  "3" not in " ".join(positions()), str(positions()))
+
+
+async def test_positions_update_when_clearing():
+    """Clearing finished rows must not leave the waiting ones mislabelled."""
+    print("\n[clearing does not strand the numbering]")
+    with tempfile.TemporaryDirectory() as td:
+        app = LumaApp(config_path=os.path.join(td, "config.json"),
+                      auto_prepare=False)
+        async with app.run_test() as pilot:
+            screen = app.screen
+            screen._queue_worker = lambda: None
+            screen.query_one("#url-input", Input).value = (
+                "https://youtu.be/aaa https://youtu.be/bbb"
+            )
+            screen._start()
+            await pilot.pause()
+
+            # A finished row alongside the waiting ones.
+            holder = screen.query_one("#downloads", VerticalScroll)
+            done = DownloadRow("99", "https://youtu.be/zzz")
+            done.sequence = 0
+            holder.mount(done)
+            screen._rows["99"] = done
+            await pilot.pause()
+            done.finish(True, "")
+            screen._after_list_change()
+            await pilot.pause()
+
+            screen.action_clear_finished()
+            await pilot.pause()
+
+            remaining = rows_of(screen)
+            check("the finished row went", len(remaining) == 2,
+                  str(len(remaining)))
+            details = [text_of(r.query_one(".row-detail", Static))
+                       for r in remaining]
+            check("the waiting rows are still numbered from one",
+                  details[0] == "Next up" and "2" in details[1], str(details))
+
+
 async def run_all():
     print("=" * 62)
     print("  Luma queue, sorting and row-removal checks")
     print("=" * 62)
+    await test_queue_positions_stay_correct()
+    await test_positions_update_when_clearing()
     test_sound_is_fetched_first()
     test_each_part_is_named()
     await test_row_shows_which_part()

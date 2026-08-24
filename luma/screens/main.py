@@ -203,8 +203,14 @@ class MainScreen(Screen):
         self._after_list_change()
 
     def _after_list_change(self):
+        """Everything that must be true again after the list is altered.
+
+        Every add, removal and clear goes through here, so queue positions
+        cannot drift out of step with what is actually on screen.
+        """
         self._refresh_buttons()
         self._refresh_queue_note()
+        self._renumber_waiting()
         self.query_one("#list-header").display = bool(self._rows)
 
     def _refresh_buttons(self):
@@ -335,17 +341,17 @@ class MainScreen(Screen):
             self._add_row(tag, url)
             with self._queue_lock:
                 self._queue.append((tag, url))
-        self._after_list_change()
-        self._renumber_waiting()
+        self._after_list_change()      # renumbers the queue as part of this
         return len(urls)
 
     def _renumber_waiting(self):
+        """Give every waiting row its current place in the queue."""
         with self._queue_lock:
             waiting = list(self._queue)
         for position, (tag, _) in enumerate(waiting, 1):
             row = self._rows.get(tag)
             if row is not None:
-                row.set_waiting(position if position > 1 else None)
+                row.set_waiting(position)
 
     def _ensure_worker(self):
         """Start working through the queue if nothing is already doing so."""
