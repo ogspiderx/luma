@@ -2,7 +2,7 @@
 #define AppVersion "0.1.0"
 #endif
 
-#define AppId "{D8165062-360B-4483-8A94-4080CAAD414C}"
+#define AppId "{{D8165062-360B-4483-8A94-4080CAAD414C}"
 #define PublisherName "OGSpiderX"
 #define RepoURL "https://github.com/ogspiderx/luma"
 #define BuildRoot "..\..\dist\Luma"
