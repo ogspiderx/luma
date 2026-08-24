@@ -10,6 +10,20 @@ _FORBIDDEN_ROOTS = (
     "/proc", "/sys",
 )
 
+_WINDOWS_ROOT_VARS = (
+    "WINDIR", "SystemRoot", "ProgramFiles", "ProgramFiles(x86)",
+    "ProgramW6432", "ProgramData",
+)
+
+
+def _forbidden_roots():
+    roots = list(_FORBIDDEN_ROOTS)
+    for var in _WINDOWS_ROOT_VARS:
+        value = os.environ.get(var)
+        if value:
+            roots.append(expand(value))
+    return roots
+
 
 def sanitize_filename(name, limit=120):
     cleaned = _ILLEGAL_FILENAME.sub("", name or "").strip().rstrip(". ")
@@ -56,9 +70,11 @@ def validate_output_dir(path):
 
     resolved = expand(raw)
 
-    lowered = resolved.lower() if os.name == "nt" else resolved
-    for root in _FORBIDDEN_ROOTS:
-        if lowered == root or lowered.startswith(root + os.sep):
+    case_insensitive = os.name == "nt"
+    lowered = resolved.lower() if case_insensitive else resolved
+    for root in _forbidden_roots():
+        candidate = root.lower() if case_insensitive else root
+        if lowered == candidate or lowered.startswith(candidate + os.sep):
             raise UnsafePathError(
                 "That is a system folder. Please choose somewhere like your "
                 "Videos or Downloads folder instead."

@@ -43,8 +43,10 @@ otherwise be appended to the command as an argument.
 ### Folders cannot escape where they are meant to be
 
 Any folder that comes from a person is resolved to an absolute path and
-checked. System directories (`/etc`, `/bin`, `/boot`, `/proc`, `/sys`, and
-similar) are refused outright and fall back to the default download folder.
+checked. System directories are refused outright and fall back to the
+default download folder — on Windows that means `Windows`, `Program Files`,
+`Program Files (x86)` and `ProgramData`, found from the environment rather
+than a hard-coded drive letter, since Windows can be installed on any drive.
 
 Names used to build subfolders — including a playlist's title, which comes
 from the internet — are reduced to a single safe filename component, so a

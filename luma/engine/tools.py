@@ -9,10 +9,7 @@ import zipfile
 from .callbacks import EngineCallbacks
 from .constants import ARIA2_URL, FFMPEG_URL, UA, YTDLP_URL
 from .errors import ToolInstallError
-
-BIN_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin"
-)
+from ..locations import BIN_DIR
 
 
 def _download(url, dest, desc, callbacks):

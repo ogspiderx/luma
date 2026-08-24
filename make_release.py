@@ -19,6 +19,7 @@ SKIP_SUFFIXES = (".pyc", ".pyo", ".part", ".aria2", ".zip")
 
 INCLUDE_TOP = {
     "luma", "run.bat", "requirements.txt", "README.md", "SECURITY.md",
+    "PRIVACY.md", "TERMS.md",
 }
 
 

@@ -8,29 +8,34 @@ rather than trickling one file at a time.
 
 ---
 
-## Getting started
+## Getting Luma
 
-1. **Double-click `run.bat`.**
-2. Paste a YouTube link into the box.
-3. Press **Enter**.
+Luma comes in three forms. Pick whichever suits you.
 
-Luma opens maximised in its own window. **F11** makes it full screen. If you
-would rather have no tabs or title bar at all, start it with `run.bat --bare` —
-though note that leaves nothing to grab if you want to move the window.
+**Setup.exe** — the ordinary way to install a Windows program. Run it, follow
+the wizard, and Luma appears in your Start Menu with a proper uninstaller in
+Add & Remove Programs. Choose whether to install just for yourself or for
+everyone on the computer; either way, no Python is needed.
 
-That is the whole thing. Your videos appear in the **`downloads`** folder next
-to Luma.
+**Portable (no installer)** — a folder you can put anywhere, run from a USB
+drive, or delete when you're done. Nothing is written outside that folder, and
+nothing needs installing first.
 
-### The first time you open it
+**Portable source** — the same portable idea, but as Python source rather than
+a compiled program. Useful for development, or if you would rather see exactly
+what runs. This is what `run.bat` in this folder is for: double-click it, and
+the first time you use it, it offers to install Python if you don't already
+have it, then fetches its own dependencies. `run.bat --bare` starts with no
+tabs or title bar at all, though that leaves nothing to grab if you want to
+move the window. After the first run, it starts in a second or two.
 
-The first run takes a couple of minutes and you only go through it once:
+However you got Luma, its very first launch takes a moment longer than every
+one after it: it downloads the three small tools it uses to fetch and combine
+video. One of them is a real download, so give it a moment — you'll see it
+happening on screen.
 
-- If Python is not on your computer, Luma offers to install it. Say yes, then
-  close the window and open Luma again.
-- Luma then downloads the three tools it uses to fetch and combine video. One
-  of them is large, so give it a moment. You will see it happening.
-
-After that, Luma starts in a second or two.
+Then: paste a YouTube link into the box and press **Enter**. Luma opens
+maximised in its own window; **F11** makes it full screen.
 
 ---
 
@@ -123,8 +128,11 @@ reason in plain words.
 
 ## What Luma puts on your computer
 
-Everything lives in this folder. Nothing is installed elsewhere, and nothing is
-sent anywhere.
+Nothing is ever sent anywhere. Where things are kept on disk depends on how
+you got Luma.
+
+**Portable, either form.** Everything lives beside Luma itself, in the same
+folder:
 
 | | |
 |---|---|
@@ -136,6 +144,16 @@ sent anywhere.
 | `errors.json` | What didn't work |
 
 To remove Luma completely, delete this folder.
+
+**Installed with Setup.exe.** The program itself sits where you told the
+wizard to put it (Program Files, typically). Everything else — settings,
+history, the fetched tools, logs — lives in your own Windows profile, under
+`%LOCALAPPDATA%\Luma`, so it is kept even if Luma is reinstalled or updated.
+Your videos default to your own **Downloads** folder, changeable any time in
+Settings. Uninstalling from Add & Remove Programs removes the program itself.
+It deliberately leaves `%LOCALAPPDATA%\Luma` and your videos alone, so your
+settings and history are still there if you install Luma again later; delete
+that folder yourself if you want it gone completely.
 
 ---
 
@@ -179,7 +197,16 @@ fixes this.
 - Luma resizes with its window. Make it narrow and the optional details step
   aside; make it wide and everything gets more room.
 
-Technical notes about how Luma protects you are in `SECURITY.md`.
+Technical notes about how Luma protects you are in `SECURITY.md`. Luma's
+Privacy Policy and Terms of Service are `PRIVACY.md` and `TERMS.md`, and are
+shown in the setup wizard before you install.
+
+**A note on "Pin to Start."** The installer offers to pin Luma to your Start
+menu, checked by default. Windows removed the supported way for an installer
+to do this some years ago, so this uses an older mechanism that still works
+on most Windows 10 machines but is unreliable on Windows 11. If Luma doesn't
+appear pinned after installing, find it in the Start menu's app list and pin
+it yourself — one extra click.
 
 ---
 
@@ -189,3 +216,30 @@ Luma's name and colours live in one file, `luma/branding.py`. Change the name,
 the wordmark and the ten colours in it and the whole interface follows — the
 bar across the top, both themes, and every accent. Nothing else in the code
 hard-codes a colour or the product name.
+
+---
+
+## Building the portable build and the installer
+
+This only matters if you're building Luma yourself rather than downloading a
+release. It has to be done on Windows — Luma only ever ships for Windows, and
+neither PyInstaller nor Inno Setup cross-compile.
+
+**Automatically:** push to the `luma` branch, or run the *Luma Windows build*
+workflow by hand from the Actions tab. It builds both the portable folder and
+the installer on a real Windows machine and attaches them to the run. Pushing
+a tag named `luma-v<version>` also publishes them as a GitHub Release.
+
+**By hand, on a Windows machine with Python and Inno Setup 6 installed:**
+
+```
+pip install -r requirements.txt pyinstaller
+pyinstaller --noconfirm --clean packaging\pyinstaller\luma.spec
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\windows\luma.iss
+```
+
+The first command produces the portable build in `dist\Luma`. The second
+produces `dist\installer\Luma-Setup-<version>.exe`.
+
+To use Luma's own icon rather than a generic one, put a `.ico` file at
+`packaging\windows\luma.ico` before building either one.

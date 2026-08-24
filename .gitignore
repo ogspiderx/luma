@@ -6,6 +6,7 @@ history.json
 errors.json
 .installed
 dist/
+build/
 __pycache__/
 *.pyc
 *.part
