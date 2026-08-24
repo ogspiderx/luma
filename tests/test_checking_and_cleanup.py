@@ -204,7 +204,7 @@ async def test_choosing_starts_it_without_waiting_for_the_rest():
                       isinstance(app.focused, QualityChip), str(app.focused))
 
                 first = screen._rows[sorted(screen._rows)[0]]
-                await pilot.click(chips_of(first)[0])
+                chips_of(first)[0].press()
                 await support.wait_for(pilot, lambda: bool(screen._queue))
 
                 check("the answered link is queued at that quality",
@@ -234,7 +234,7 @@ async def test_one_answer_can_cover_the_rest():
                       screen.check_action("same_for_all", ()) is True)
 
                 first = screen._rows[sorted(screen._rows, key=int)[0]]
-                await pilot.click(chips_of(first)[1])
+                chips_of(first)[1].press()
                 await support.wait_for(pilot,
                                        lambda: len(screen._awaiting) == 4)
                 check("one is answered", len(screen._awaiting) == 4,
@@ -288,7 +288,7 @@ async def test_skipping_takes_the_row_away():
                 screen._begin_checks([link(1)])
                 await settled(screen, pilot)
                 row = list(screen._rows.values())[0]
-                await pilot.click(chips_of(row)[-1])
+                chips_of(row)[-1].press()
                 await support.wait_for(pilot, lambda: not screen._rows)
                 check("the row goes with it", screen._rows == {},
                       str(screen._rows))

@@ -254,7 +254,7 @@ async def test_the_chooser_lives_in_the_row():
         check("the bar is out of the way while asking",
               not row.query_one(ProgressBar).display)
 
-        await pilot.click(chips[1])
+        chips[1].press()
         await support.wait_for(pilot, lambda: bool(app.screen._queue))
         with app.screen._queue_lock:
             queued = list(app.screen._queue)
@@ -323,7 +323,7 @@ async def test_skipping_from_the_row():
         await pilot.pause()
 
         chips = list(row.query(QualityChip))
-        await pilot.click(chips[-1])
+        chips[-1].press()
         await support.wait_for(pilot, lambda: row not in holder.children)
         check("the row is taken out of the list",
               row not in holder.children, str(list(holder.children)))
