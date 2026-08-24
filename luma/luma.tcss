@@ -100,6 +100,23 @@ Screen {
 
 /* -- a download in progress -- */
 
+/* -- the list header: how many, and how to arrange them -- */
+
+#list-header {
+    height: auto;
+    padding: 0 1;
+}
+
+#queue-note {
+    color: $text-muted;
+    width: 1fr;
+    height: auto;
+}
+
+#sort-select {
+    width: 24;
+}
+
 DownloadRow {
     height: auto;
     margin-bottom: 1;
@@ -107,10 +124,31 @@ DownloadRow {
     border-left: outer $panel;
 }
 
-/* The inner container must size to its contents. Left to its default it
-   claims all remaining space, and a single row then fills the whole pane. */
-DownloadRow > Vertical {
+/* The inner containers must size to their contents. Left to their default
+   they claim all remaining space, and a single row then fills the pane. */
+DownloadRow > Horizontal {
     height: auto;
+}
+
+DownloadRow .row-main {
+    height: auto;
+    width: 1fr;
+}
+
+/* The cross that removes a row, or stops it if it is still going. */
+DownloadRow .row-remove {
+    min-width: 3;
+    width: 3;
+    height: 1;
+    border: none;
+    background: transparent;
+    color: $text-muted;
+    margin-left: 1;
+}
+
+DownloadRow .row-remove:hover {
+    background: $error;
+    color: $foreground;
 }
 
 DownloadRow .row-title {

@@ -1,6 +1,7 @@
 """Luma's main screen: paste a link, start a download, watch it happen."""
 
 import os
+import threading
 
 from textual import work
 from textual.app import ComposeResult
@@ -8,7 +9,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import (
-    Button, Footer, Header, Input, LoadingIndicator, Static,
+    Button, Footer, Header, Input, LoadingIndicator, Select, Static,
 )
 
 from ..config import resolve_output_dir
@@ -21,12 +22,21 @@ from ..engine.inputs import (
     gather_inputs,
     split_pasted_text,
 )
-from ..engine.plan import compute_plan, default_plan, describe_plan
+from ..engine.plan import apply_overrides, compute_plan, default_plan, describe_plan
 from ..engine.speedtest import measure_bandwidth
 from ..engine.tools import ensure_tools
 from ..history import record_results, recent_downloads
 from ..locations import DEFAULT_DOWNLOAD_DIR
 from ..widgets.download_row import DownloadRow
+
+#: How the list can be arranged, in plain words.
+SORT_OPTIONS = [
+    ("Order added", "added"),
+    ("Unfinished first", "unfinished"),
+    ("Finished first", "finished"),
+    ("Furthest along", "progress"),
+    ("Name A-Z", "name"),
+]
 
 
 class MainScreen(Screen):
@@ -44,8 +54,12 @@ class MainScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._rows = {}
+        self._queue = []                 # (tag, url) still waiting
+        self._queue_lock = threading.Lock()
         self._download_active = False
         self._speed_timer = None
+        self._sequence = 0
+        self._sort_mode = "added"
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -58,6 +72,10 @@ class MainScreen(Screen):
                 )
                 yield Button("Download", variant="primary", id="download-btn")
             yield Static("", id="plan-panel")
+            with Horizontal(id="list-header"):
+                yield Static("", id="queue-note")
+                yield Select(SORT_OPTIONS, id="sort-select", allow_blank=False,
+                             value="added")
             yield VerticalScroll(id="downloads")
             with Horizontal(id="status-row"):
                 yield LoadingIndicator(id="busy")
@@ -69,9 +87,8 @@ class MainScreen(Screen):
     def on_mount(self) -> None:
         self.query_one("#stop-btn", Button).display = False
         self.query_one("#clear-btn", Button).display = False
+        self.query_one("#list-header").display = False
         self.query_one("#url-input", Input).focus()
-        # Tools, the update check and the speed reading are all done once,
-        # here, rather than in front of every download.
         if getattr(self.app, "auto_prepare", True):
             self._set_busy(True)
             self._prepare_worker()
@@ -113,10 +130,25 @@ class MainScreen(Screen):
         if event.input.id == "url-input":
             self._start()
 
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "sort-select":
+            self._sort_mode = str(event.value)
+            self._apply_sort()
+
     def action_stop_downloads(self) -> None:
-        if self._download_active:
-            dl.request_cancel()
-            self._set_status("Stopping...")
+        """Stop everything, including anything still waiting."""
+        if not self._download_active:
+            return
+        with self._queue_lock:
+            waiting = list(self._queue)
+            self._queue.clear()
+        dl.request_cancel()
+        for tag, _ in waiting:
+            row = self._rows.get(tag)
+            if row is not None and not row.finished:
+                row.finish(False, "Stopped before it started.")
+        self._set_status("Stopping...")
+        self._refresh_buttons()
 
     def action_open_settings(self) -> None:
         self.app.action_open_settings()
@@ -138,7 +170,7 @@ class MainScreen(Screen):
                 row.remove()
                 del self._rows[tag]
                 removed += 1
-        self._refresh_buttons()
+        self._after_list_change()
         if removed:
             self.app.notify(
                 f"Cleared {removed} finished "
@@ -148,6 +180,33 @@ class MainScreen(Screen):
             self.app.notify("Nothing finished to clear yet.",
                             severity="warning")
 
+    # -- removing a single row -------------------------------------------
+    def on_download_row_remove_requested(
+        self, event: DownloadRow.RemoveRequested
+    ) -> None:
+        """The cross on a row: stop it if it is running, then take it away."""
+        event.stop()
+        row = event.row
+        tag = row.tag
+
+        with self._queue_lock:
+            still_waiting = [(t, u) for t, u in self._queue if t == tag]
+            self._queue[:] = [(t, u) for t, u in self._queue if t != tag]
+
+        if not row.finished and not still_waiting:
+            # It is in flight: ask this one to stop without touching the rest.
+            dl.cancel_tag(tag)
+            self.app.notify("Stopping that download.")
+
+        row.remove()
+        self._rows.pop(tag, None)
+        self._after_list_change()
+
+    def _after_list_change(self):
+        self._refresh_buttons()
+        self._refresh_queue_note()
+        self.query_one("#list-header").display = bool(self._rows)
+
     def _refresh_buttons(self):
         """Stop is offered while running; Clear only when there is idle work."""
         finished = any(row.finished for row in self._rows.values())
@@ -155,6 +214,43 @@ class MainScreen(Screen):
         self.query_one("#clear-btn", Button).display = (
             bool(finished) and not self._download_active
         )
+
+    def _refresh_queue_note(self):
+        with self._queue_lock:
+            waiting = len(self._queue)
+        note = self.query_one("#queue-note", Static)
+        if waiting:
+            note.update(f"{waiting} waiting")
+        else:
+            note.update(f"{len(self._rows)} in the list" if self._rows else "")
+
+    # -- sorting ---------------------------------------------------------
+    def _sort_key(self, row):
+        mode = self._sort_mode
+        if mode == "name":
+            # Rows without a title yet go last, so the list does not reshuffle
+            # as titles arrive.
+            return (0 if row.title_text else 1, row.title_text.lower(),
+                    row.sequence)
+        if mode == "progress":
+            return (-row.percent, row.sequence)
+        if mode == "unfinished":
+            return (1 if row.finished else 0, row.sequence)
+        if mode == "finished":
+            return (0 if row.finished else 1, row.sequence)
+        return (row.sequence,)           # order added
+
+    def _apply_sort(self):
+        """Rearrange the list in place, without disturbing what is running."""
+        holder = self.query_one("#downloads", VerticalScroll)
+        rows = [w for w in holder.children if isinstance(w, DownloadRow)]
+        if len(rows) < 2:
+            return
+        for position, row in enumerate(sorted(rows, key=self._sort_key)):
+            try:
+                holder.move_child(row, before=position)
+            except Exception:                          # noqa: BLE001
+                pass    # a row removed mid-sort is not worth failing over
 
     # -- one-time preparation --------------------------------------------
     @work(thread=True, exclusive=True, group="prepare")
@@ -203,11 +299,6 @@ class MainScreen(Screen):
         return {row.url for row in self._rows.values()}
 
     def _start(self) -> None:
-        if self._download_active:
-            self.app.notify("A download is already running.",
-                            severity="warning")
-            return
-
         box = self.query_one("#url-input", Input)
         text = box.value.strip()
         if not text:
@@ -228,13 +319,49 @@ class MainScreen(Screen):
             return
 
         box.value = ""
+        added = self._enqueue(urls)
+        if self._download_active:
+            self.app.notify(
+                f"Added {added} to the queue - "
+                f"{'it' if added == 1 else 'they'} will start automatically."
+            )
+        self._ensure_worker()
+
+    def _enqueue(self, urls):
+        """Put links in the list as waiting, and on the queue."""
+        for url in urls:
+            self._sequence += 1
+            tag = str(self._sequence)
+            self._add_row(tag, url)
+            with self._queue_lock:
+                self._queue.append((tag, url))
+        self._after_list_change()
+        self._renumber_waiting()
+        return len(urls)
+
+    def _renumber_waiting(self):
+        with self._queue_lock:
+            waiting = list(self._queue)
+        for position, (tag, _) in enumerate(waiting, 1):
+            row = self._rows.get(tag)
+            if row is not None:
+                row.set_waiting(position if position > 1 else None)
+
+    def _ensure_worker(self):
+        """Start working through the queue if nothing is already doing so."""
+        if self._download_active:
+            return
+        with self._queue_lock:
+            empty = not self._queue
+        if empty:
+            return
         self._download_active = True
-        self.query_one("#download-btn", Button).disabled = True
-        self._refresh_buttons()      # Stop becomes available straight away
+        self.query_one("#download-btn", Button).disabled = False
+        self._refresh_buttons()
         self._set_busy(True)
         dl.reset_cancel()
         self._start_speed_readout()
-        self._download_worker(urls)
+        self._queue_worker()
 
     def _filter_duplicates(self, urls):
         """Drop links already queued or already downloaded, and say so."""
@@ -262,7 +389,6 @@ class MainScreen(Screen):
                 f"in the list below."
             )
 
-        # Only worth mentioning when Luma would not skip them itself.
         config = getattr(self.app, "config", None) or {}
         if queued and not config.get("archive", False):
             try:
@@ -293,11 +419,14 @@ class MainScreen(Screen):
         if not self._download_active:
             return
         total = sum(row.speed_bytes for row in self._rows.values())
-        active = sum(1 for row in self._rows.values() if not row.finished)
+        with self._queue_lock:
+            waiting = len(self._queue)
+        running = sum(1 for row in self._rows.values()
+                      if row.started and not row.finished)
         if total > 0:
+            tail = f", {waiting} waiting" if waiting else ""
             self._set_status(
-                f"Downloading {active} of {len(self._rows)} - "
-                f"{human(total)}/s altogether"
+                f"Downloading {running}{tail} - {human(total)}/s altogether"
             )
 
     # -- UI updates (always called on the UI thread) ---------------------
@@ -309,6 +438,8 @@ class MainScreen(Screen):
 
     def _add_row(self, tag, url):
         row = DownloadRow(tag, url)
+        self._sequence = max(self._sequence, int(tag) if tag.isdigit() else 0)
+        row.sequence = int(tag) if tag.isdigit() else self._sequence
         self._rows[tag] = row
         self.query_one("#downloads", VerticalScroll).mount(row)
 
@@ -316,6 +447,8 @@ class MainScreen(Screen):
         row = self._rows.get(tag)
         if row is not None:
             row.set_title(title)
+            if self._sort_mode == "name":
+                self._apply_sort()
 
     def _row_progress(self, tag, parsed):
         row = self._rows.get(tag)
@@ -331,14 +464,16 @@ class MainScreen(Screen):
         row = self._rows.get(tag)
         if row is not None:
             row.finish(ok, message)
-        self._refresh_buttons()
+        self._refresh_queue_note()
+        if self._sort_mode in ("unfinished", "finished", "progress"):
+            self._apply_sort()
 
     def _finished(self, ok_count, fail_count, output_dir):
         self._download_active = False
         self._stop_speed_readout()
         self._set_busy(False)
         self.query_one("#download-btn", Button).disabled = False
-        self._refresh_buttons()
+        self._after_list_change()
         if fail_count and not ok_count:
             self._set_status("Nothing downloaded. See the messages above.")
         elif fail_count:
@@ -351,17 +486,25 @@ class MainScreen(Screen):
         self.query_one("#url-input", Input).focus()
 
     # -- the worker ------------------------------------------------------
+    def _take_batch(self, size):
+        """Remove and return up to `size` waiting items."""
+        with self._queue_lock:
+            batch = self._queue[:size]
+            del self._queue[:size]
+        return batch
+
     @work(thread=True, exclusive=True, group="download")
-    def _download_worker(self, urls) -> None:
-        """Run the whole download on a background thread."""
+    def _queue_worker(self) -> None:
+        """Work through the queue, however much arrives while it runs."""
         app = self.app
         cfg = self._settings()
+        saved = failed = 0
 
         def ui(fn, *args):
             try:
                 app.call_from_thread(fn, *args)
             except Exception:
-                pass  # app is shutting down
+                pass
 
         callbacks = EngineCallbacks(
             on_status=lambda m: ui(self._set_status, m),
@@ -381,70 +524,83 @@ class MainScreen(Screen):
         )
 
         try:
-            # Prepared once at startup; only fall back if that had not
-            # finished yet or did not succeed.
             tools = getattr(app, "tools", None)
             if not tools:
                 ui(self._set_status, "Getting things ready...")
                 tools = ensure_tools(callbacks)
                 app.tools = tools
 
-            ui(self._set_status, "Checking the link...")
-            videos = expand_playlists(tools["yt-dlp"], urls, callbacks)
-            if not videos:
-                ui(self._set_status, "Nothing to download.")
-                ui(self._finished, 0, 0, cfg["output_dir"])
-                return
-
-            # Number rows from what is already listed, so a second batch
-            # continues the count instead of restarting it.
-            offset = len(self._rows)
-            total = len(videos)
-            tags = []
-            for i, url in enumerate(videos, 1):
-                tag = f"{offset + i}"
-                tags.append(tag)
-                ui(self._add_row, tag, url)
-
-            # The connection was read once at startup; reuse that rather than
-            # spending seconds on it before every download.
             reading = getattr(app, "bandwidth", None)
-            if cfg["run_speedtest"] and reading:
-                single, line, rtt = reading
-                plan = compute_plan(single, line, rtt, total,
-                                    cfg["max_parallel"])
-            else:
-                plan = default_plan(total, cfg["max_parallel"])
+            plan = None
 
-            if cfg["conns_per_file"]:
-                from ..engine.plan import apply_overrides
-                plan = apply_overrides(
-                    plan, conns_per_file=cfg["conns_per_file"],
-                    num_urls=total,
+            while not dl.is_cancelled():
+                batch = self._take_batch(max(1, cfg["max_parallel"]))
+                if not batch:
+                    break
+
+                ui(self._renumber_waiting)
+                tags = [t for t, _ in batch]
+                links = [u for _, u in batch]
+
+                # Playlists are expanded on the way in, adding rows as needed.
+                expanded = []
+                for tag, url in batch:
+                    videos = expand_playlists(tools["yt-dlp"], [url], callbacks)
+                    if not videos:
+                        ui(self._row_finish, tag, False,
+                           "Nothing could be found at that link.")
+                        continue
+                    expanded.append((tag, videos[0]))
+                    for extra in videos[1:]:
+                        # Extra videos from a playlist join the queue.
+                        ui(self._enqueue_extra, extra)
+                if not expanded:
+                    continue
+
+                tags = [t for t, _ in expanded]
+                links = [u for _, u in expanded]
+
+                if plan is None:
+                    if cfg["run_speedtest"] and reading:
+                        single, line, rtt = reading
+                        plan = compute_plan(single, line, rtt, len(links),
+                                            cfg["max_parallel"])
+                    else:
+                        plan = default_plan(len(links), cfg["max_parallel"])
+                    if cfg["conns_per_file"]:
+                        plan = apply_overrides(
+                            plan, conns_per_file=cfg["conns_per_file"])
+                    ui(self._set_plan, "   ".join(describe_plan(plan)))
+
+                ui(self._set_busy, False)
+                results = dl.run_downloads(
+                    tools, links, plan, cfg["output_dir"], cfg["quality"],
+                    downloader="aria2c", archive=cfg["archive"],
+                    callbacks=callbacks, tags=tags,
                 )
+                saved += sum(1 for r in results if r[1])
+                failed += sum(1 for r in results if not r[1])
+                self._record_results(results, cfg["quality"])
 
-            ui(self._set_plan, "   ".join(describe_plan(plan)))
-            ui(self._set_status,
-               f"Downloading {total} video{'s' if total > 1 else ''}...")
-            ui(self._set_busy, False)
-
-            results = dl.run_downloads(
-                tools, videos, plan, cfg["output_dir"], cfg["quality"],
-                downloader="aria2c", archive=cfg["archive"],
-                callbacks=callbacks, tags=tags,
-            )
-
-            ok = sum(1 for r in results if r[1])
-            self._record_results(results, cfg["quality"])
-            ui(self._finished, ok, len(results) - ok, cfg["output_dir"])
+            ui(self._finished, saved, failed, cfg["output_dir"])
 
         except LumaError as exc:
             ui(self._set_status, exc.user_message)
-            ui(self._finished, 0, 0, cfg["output_dir"])
+            ui(self._finished, saved, failed, cfg["output_dir"])
         except Exception:                                   # noqa: BLE001
-            ui(self._set_status,
-               "Something went wrong. Please try again.")
-            ui(self._finished, 0, 0, cfg["output_dir"])
+            ui(self._set_status, "Something went wrong. Please try again.")
+            ui(self._finished, saved, failed, cfg["output_dir"])
+
+    def _enqueue_extra(self, url):
+        """Add one more video, discovered inside a playlist, to the queue."""
+        if url in self._known_links():
+            return
+        self._sequence += 1
+        tag = str(self._sequence)
+        self._add_row(tag, url)
+        with self._queue_lock:
+            self._queue.append((tag, url))
+        self._after_list_change()
 
     def _record_results(self, results, quality=None):
         """Write the outcome of each video to the history and error records."""

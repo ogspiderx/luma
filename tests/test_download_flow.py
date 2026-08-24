@@ -145,8 +145,8 @@ async def test_single_download():
             # control catches the state the worker cannot yet have cleared.
             screen._start()
             check("the download starts", screen._download_active)
-            check("download button disables while running",
-                  screen.query_one("#download-btn", Button).disabled)
+            check("more can still be added while it runs",
+                  not screen.query_one("#download-btn", Button).disabled)
             check("link box was cleared", box.value == "")
             await pilot.pause()
 

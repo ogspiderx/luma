@@ -78,6 +78,15 @@ if not exist ".installed" (
 )
 
 REM --- start Luma -----------------------------------------------------
+REM  Python and the interface take a moment to load. Put something on the
+REM  screen so that moment is not a blank window with a blinking cursor.
+cls
+echo.
+echo      L U M A
+echo      -------
+echo      Starting...
+echo.
+
 %PY% -m luma %*
 
 REM Only pause if something went wrong, so a normal quit closes cleanly.

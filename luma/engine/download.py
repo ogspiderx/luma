@@ -31,6 +31,21 @@ _procs_lock = threading.Lock()
 #: Set to request that all in-flight downloads stop as soon as they can.
 _cancel_event = threading.Event()
 
+#: Individual downloads asked to stop, by tag, so one can be dropped without
+#: disturbing the others.
+_cancelled_tags = set()
+
+
+def cancel_tag(tag):
+    """Ask one download to stop, leaving the rest running."""
+    with _procs_lock:
+        _cancelled_tags.add(tag)
+
+
+def is_tag_cancelled(tag):
+    with _procs_lock:
+        return tag in _cancelled_tags
+
 
 def _register(proc):
     with _procs_lock:
@@ -48,8 +63,10 @@ def request_cancel():
 
 
 def reset_cancel():
-    """Clear a previous cancel request before starting new work."""
+    """Clear any cancel requests before starting new work."""
     _cancel_event.clear()
+    with _procs_lock:
+        _cancelled_tags.clear()
 
 
 def is_cancelled():
@@ -87,11 +104,15 @@ def terminate_all(timeout=5):
 def build_cmd(tools, url, plan, output_dir, quality, downloader="aria2c",
               archive=False):
     """Build the yt-dlp argument list. Always a list -- never a shell string."""
+    # Sound first, then picture. The streams are fetched in the order named
+    # here, and sound is much the smaller of the two, so putting it first
+    # gets one part of the video finished quickly and each stream gets the
+    # whole connection to itself rather than sharing it.
     if str(quality).lower() == "best":
-        fmt = "bv*+ba/b/best"
+        fmt = "ba+bv*/b/best"
     else:
         q = int(quality)
-        fmt = (f"bv*[height<={q}]+ba/"
+        fmt = (f"ba+bv*[height<={q}]/"
                f"b[height<={q}]/"
                f"bv*[height<={q}]/best")
 
@@ -299,6 +320,21 @@ _FORMATS_RE = re.compile(r"Downloading\s+\d+\s+format\(s\):\s*([\w+]+)")
 #: ".f135." in a filename marks one stream of a video built from several.
 _FORMAT_MARKER = re.compile(r"\.f\d+\.")
 
+#: Sound-only containers, so a stream can be named for what it carries.
+_AUDIO_EXTENSIONS = (".m4a", ".opus", ".ogg", ".oga", ".mp3", ".aac", ".wav")
+
+
+def _stream_kind(path):
+    """Say whether a stream is the sound or the picture, from its filename."""
+    name = re.split(r"[\\/]", str(path or "").strip())[-1].lower()
+    if not name:
+        return ""
+    if name.endswith(_AUDIO_EXTENSIONS):
+        return "Sound"
+    if _FORMAT_MARKER.search(name):
+        return "Picture"
+    return ""      # a single combined file is just "the video"
+
 
 def _track_streams(line, state):
     """Follow which of a video's streams is being fetched.
@@ -326,6 +362,7 @@ def _track_streams(line, state):
     # and then having to come back.
     if _FORMAT_MARKER.search(dest.group(1)):
         state["streams_total"] = max(2, state.get("streams_total", 1))
+    state["stream_kind"] = _stream_kind(dest.group(1))
 
     if state.get("stream_started"):
         # Bank the stream that just finished so its bytes keep counting.
@@ -400,6 +437,7 @@ def _overall(state, parsed):
         "connections": parsed["connections"],
         "stream": index + 1,
         "streams": streams,
+        "kind": state.get("stream_kind", ""),
     }
 
 
@@ -442,7 +480,7 @@ def _stream_download(cmd, tag, callbacks):
     _register(proc)
     try:
         for raw in proc.stdout:
-            if _cancel_event.is_set():
+            if _cancel_event.is_set() or is_tag_cancelled(tag):
                 proc.terminate()
                 break
 
@@ -475,7 +513,7 @@ def _stream_download(cmd, tag, callbacks):
 
     filepath = state.get("filepath") or state.get("destination")
 
-    if _cancel_event.is_set():
+    if _cancel_event.is_set() or is_tag_cancelled(tag):
         return 130, "Stopped.", filepath
     if proc.returncode == 0:
         return 0, "", filepath
@@ -497,7 +535,7 @@ def download_one(tools, url, plan, output_dir, quality, downloader, archive,
 
     reason, filepath = "", None
     for attempt in range(1, MAX_ATTEMPTS + 1):
-        if _cancel_event.is_set():
+        if _cancel_event.is_set() or is_tag_cancelled(tag):
             callbacks.on_video_done(tag, url, False, "Stopped.", None)
             return (url, False, "Stopped.", None)
 
@@ -517,7 +555,7 @@ def download_one(tools, url, plan, output_dir, quality, downloader, archive,
             )
             # Sleep in slices so a cancel is noticed promptly.
             for _ in range(int(wait * 4)):
-                if _cancel_event.is_set():
+                if _cancel_event.is_set() or is_tag_cancelled(tag):
                     break
                 time.sleep(0.25)
 

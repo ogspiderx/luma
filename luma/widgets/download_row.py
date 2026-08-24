@@ -1,11 +1,12 @@
-"""One row per video being downloaded."""
+"""One row per video in the download list."""
 
 import re
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
+from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import ProgressBar, Static
+from textual.widgets import Button, ProgressBar, Static
 
 from ..engine.constants import human
 
@@ -33,7 +34,14 @@ def rate_to_bytes(text):
 
 
 class DownloadRow(Widget):
-    """Shows a single video's title, progress bar and current state."""
+    """Shows one video's title, progress and current state."""
+
+    class RemoveRequested(Message):
+        """The person asked for this row to go away."""
+
+        def __init__(self, row):
+            super().__init__()
+            self.row = row
 
     def __init__(self, tag, url, **kwargs):
         super().__init__(**kwargs)
@@ -41,17 +49,46 @@ class DownloadRow(Widget):
         self.url = url
         self._title = ""
         self._finished = False
+        self._ok = False
+        self._started = False
         self._speed_bytes = 0.0
+        self._percent = 0.0
+        #: Kept so the row can be told things before it is drawn.
+        self._detail = "Waiting..."
+        #: Position in the list, so "order added" can be restored.
+        self.sequence = 0
 
     # -- what the row is about -------------------------------------------
+    @property
+    def tag(self):
+        return self._tag
+
     @property
     def display_title(self):
         """The title if it is known yet, otherwise something honest."""
         return self._title or "Getting details..."
 
     @property
+    def title_text(self):
+        """Title for sorting: empty until known, so it sorts predictably."""
+        return self._title or ""
+
+    @property
     def finished(self):
         return self._finished
+
+    @property
+    def succeeded(self):
+        return self._finished and self._ok
+
+    @property
+    def started(self):
+        """True once this row has had any progress at all."""
+        return self._started
+
+    @property
+    def percent(self):
+        return 100.0 if self.succeeded else self._percent
 
     @property
     def speed_bytes(self):
@@ -59,43 +96,79 @@ class DownloadRow(Widget):
         return 0.0 if self._finished else self._speed_bytes
 
     def compose(self) -> ComposeResult:
-        with Vertical():
-            yield Static(self.display_title, classes="row-title")
-            yield ProgressBar(
-                total=100, show_eta=False, show_percentage=True,
-            )
-            yield Static("Waiting...", classes="row-detail")
+        with Horizontal():
+            with Vertical(classes="row-main"):
+                yield Static(self.display_title, classes="row-title")
+                yield ProgressBar(
+                    total=100, show_eta=False, show_percentage=True,
+                )
+                yield Static(self._detail, classes="row-detail")
+            yield Button("✕", classes="row-remove", tooltip="Remove")
 
     # -- updates ---------------------------------------------------------
+    def _bar(self):
+        """The progress bar, or None if the row has not been drawn yet."""
+        try:
+            return self.query_one(ProgressBar)
+        except Exception:                              # noqa: BLE001
+            return None
+
+    def _write(self, selector, text):
+        """Update a child if it exists yet.
+
+        A row can be told things between being created and being drawn, so
+        the text is kept and used by compose() when that happens.
+        """
+        try:
+            self.query_one(selector, Static).update(text)
+        except Exception:                              # noqa: BLE001
+            pass    # not composed yet; compose() will pick up the stored text
+
     def set_title(self, title):
         """Replace the placeholder with the video's real title."""
         if not title:
             return
         self._title = title
-        self.query_one(".row-title", Static).update(title)
+        self._write(".row-title", title)
 
     def set_detail(self, text):
-        self.query_one(".row-detail", Static).update(text)
+        self._detail = text
+        self._write(".row-detail", text)
+
+    def set_waiting(self, position=None):
+        """Mark this row as queued behind others."""
+        if self._finished or self._started:
+            return
+        if position:
+            self.set_detail(f"Waiting - number {position} in the queue")
+        else:
+            self.set_detail("Waiting...")
 
     def set_progress(self, parsed):
         """Apply a progress reading covering the whole video."""
         if self._finished:
             return
-        bar = self.query_one(ProgressBar)
+        self._started = True
         # Clamp here as well as in the engine: a bar that reads past 100%
         # destroys trust in everything else on screen.
         percent = max(0.0, min(100.0, float(parsed.get("percent") or 0.0)))
-        # Glide to the new value instead of jumping, so the bar reads as
-        # motion rather than a series of steps.
-        bar.animate("progress", value=percent, duration=FILL_SECONDS)
+        self._percent = percent
+        bar = self._bar()
+        if bar is not None:
+            # Glide to the new value instead of jumping, so the bar reads as
+            # motion rather than a series of steps.
+            bar.animate("progress", value=percent, duration=FILL_SECONDS)
 
         self._speed_bytes = rate_to_bytes(parsed.get("speed"))
         self.set_detail(self._describe(parsed))
 
     @staticmethod
     def _describe(parsed):
-        """Speed, how much of how much, and time remaining."""
+        """Which part is arriving, how fast, how much of how much, and left."""
         bits = []
+        kind = parsed.get("kind")
+        if kind:
+            bits.append(kind)
         if parsed.get("speed"):
             bits.append(str(parsed["speed"]))
 
@@ -118,10 +191,14 @@ class DownloadRow(Widget):
         the running figures are no longer meaningful once it is done.
         """
         self._finished = True
+        self._ok = bool(ok)
+        self._started = True
         self._speed_bytes = 0.0
-        bar = self.query_one(ProgressBar)
+        bar = self._bar()
         if ok:
-            bar.update(progress=100)
+            self._percent = 100.0
+            if bar is not None:
+                bar.update(progress=100)
         self.add_class("-done" if ok else "-failed")
         self.set_detail(self.url if ok else (message or "Did not finish."))
 
@@ -132,3 +209,9 @@ class DownloadRow(Widget):
             HIGHLIGHT_SECONDS,
             lambda: self.remove_class("-just-finished"),
         )
+
+    # -- removing --------------------------------------------------------
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if "row-remove" in event.button.classes:
+            event.stop()
+            self.post_message(self.RemoveRequested(self))
