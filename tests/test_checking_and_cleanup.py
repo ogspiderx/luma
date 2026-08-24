@@ -10,6 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from luma.app import LumaApp
 from luma.engine import download as dl
 from luma.screens import main as main_mod
+import support
+
 from luma.widgets.download_row import QualityChip
 
 _failures = []
@@ -203,7 +205,7 @@ async def test_choosing_starts_it_without_waiting_for_the_rest():
 
                 first = screen._rows[sorted(screen._rows)[0]]
                 await pilot.click(chips_of(first)[0])
-                await pilot.pause()
+                await support.wait_for(pilot, lambda: bool(screen._queue))
 
                 check("the answered link is queued at that quality",
                       len(screen._queue) == 1
@@ -233,12 +235,13 @@ async def test_one_answer_can_cover_the_rest():
 
                 first = screen._rows[sorted(screen._rows, key=int)[0]]
                 await pilot.click(chips_of(first)[1])
-                await pilot.pause()
+                await support.wait_for(pilot,
+                                       lambda: len(screen._awaiting) == 4)
                 check("one is answered", len(screen._awaiting) == 4,
                       str(screen._awaiting))
 
                 await pilot.press("ctrl+a")
-                await pilot.pause()
+                await support.wait_for(pilot, lambda: not screen._awaiting)
 
                 check("nothing is left asking", screen._awaiting == set(),
                       str(screen._awaiting))
@@ -266,7 +269,9 @@ async def test_same_for_all_falls_back_to_the_setting():
                 await settled(screen, pilot)
 
                 await pilot.press("ctrl+a")
-                await pilot.pause()
+                await support.wait_for(pilot, lambda: len(screen._queue) == 2)
+                check("both links were answered",
+                      len(screen._queue) == 2, str(screen._queue))
                 check("the usual setting is used when nothing was picked",
                       all(entry[2] == "360" for entry in screen._queue),
                       str(screen._queue))
@@ -284,7 +289,7 @@ async def test_skipping_takes_the_row_away():
                 await settled(screen, pilot)
                 row = list(screen._rows.values())[0]
                 await pilot.click(chips_of(row)[-1])
-                await pilot.pause()
+                await support.wait_for(pilot, lambda: not screen._rows)
                 check("the row goes with it", screen._rows == {},
                       str(screen._rows))
                 check("and nothing is queued", screen._queue == [],

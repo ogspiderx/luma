@@ -1,5 +1,26 @@
+import asyncio
 import os
 import sys
+
+
+async def wait_for(pilot, predicate, timeout=5.0):
+    """Let the app settle until `predicate` holds, or the time runs out.
+
+    A click or keypress only posts a message; the handler that acts on it
+    runs when that message is dispatched, which may be several turns of the
+    event loop later -- more so when one handler posts another, as a chip
+    press does. A single pause() covers that often enough on Linux to look
+    reliable and not often enough on Windows, so the outcome is waited for
+    rather than assumed.
+    """
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if predicate():
+            return True
+        await pilot.pause()
+        await asyncio.sleep(0.02)
+    return predicate()
 
 _WINDOWS_ROOT_VARS = (
     "WINDIR", "ProgramFiles", "ProgramFiles(x86)", "ProgramData",

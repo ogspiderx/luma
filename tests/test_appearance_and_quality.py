@@ -11,6 +11,8 @@ from textual.widgets import (
     Input, ProgressBar, Select, Static, Switch,
 )
 
+import support
+
 from luma.widgets.download_row import DownloadRow, QualityChip
 
 from luma.app import LumaApp
@@ -253,7 +255,7 @@ async def test_the_chooser_lives_in_the_row():
               not row.query_one(ProgressBar).display)
 
         await pilot.click(chips[1])
-        await pilot.pause()
+        await support.wait_for(pilot, lambda: bool(app.screen._queue))
         with app.screen._queue_lock:
             queued = list(app.screen._queue)
         check("clicking a chip queues that link at that quality",
@@ -298,7 +300,7 @@ async def test_the_chooser_works_from_the_keyboard():
               app.focused is chips[0], str(app.focused))
 
         await pilot.press("enter")
-        await pilot.pause()
+        await support.wait_for(pilot, lambda: bool(app.screen._queue))
         with app.screen._queue_lock:
             queued = list(app.screen._queue)
         check("enter answers with what is under the cursor",
@@ -322,7 +324,7 @@ async def test_skipping_from_the_row():
 
         chips = list(row.query(QualityChip))
         await pilot.click(chips[-1])
-        await pilot.pause()
+        await support.wait_for(pilot, lambda: row not in holder.children)
         check("the row is taken out of the list",
               row not in holder.children, str(list(holder.children)))
         with app.screen._queue_lock:
