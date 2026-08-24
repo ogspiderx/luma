@@ -348,7 +348,11 @@ async def test_sort_control_is_wired():
 
         chooser = screen.query_one("#sort-select", Select)
         chooser.value = "name"
-        await pilot.pause()
+        deadline = asyncio.get_event_loop().time() + 3.0
+        while (screen._sort_mode != "name"
+              and asyncio.get_event_loop().time() < deadline):
+            await pilot.pause()
+            await asyncio.sleep(0.02)
         check("choosing a different order rearranges the list",
               [r.tag for r in rows_of(screen)] == ["2", "1", "3"],
               str([r.tag for r in rows_of(screen)]))
