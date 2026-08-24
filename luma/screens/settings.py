@@ -5,27 +5,26 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import (
-    Button, Footer, Header, Input, Label, Select, Static, Switch,
+    Button, Footer, Input, Label, Select, Static, Switch,
 )
 
+from ..branding import DAY_LABEL, NIGHT_LABEL
 from ..config import (
     DEFAULTS, FOLDER_CHOICES, MAX_PARALLEL_LIMIT, load_config, normalize,
 )
 from ..engine.constants import ARIA2_MAX_PER_FILE
 from ..engine.errors import UnsafePathError
 from ..engine.paths import validate_output_dir
+from ..theme import DEFAULT_THEME, LUMA_DAY, LUMA_NIGHT
+from ..widgets.brandbar import BrandBar
+from ..widgets.sizing import SizeAware
 
-#: Themes offered, with names that mean something to a normal person.
-#: Luma's own two come first; the rest are Textual's, for anyone who
-#: prefers a palette they already know.
+#: The two looks Luma has. Borrowed palettes are deliberately not offered:
+#: the interface is designed around one colour doing one job, and a scheme
+#: that knows nothing about that undoes the design it is applied to.
 THEME_CHOICES = [
-    ("Luma Night - ink and gold", "luma-night"),
-    ("Luma Day - paper and gold", "luma-day"),
-    ("Midnight", "tokyo-night"),
-    ("Forest", "gruvbox"),
-    ("Ocean", "nord"),
-    ("Plain dark", "textual-dark"),
-    ("Plain light", "textual-light"),
+    (NIGHT_LABEL, LUMA_NIGHT.name),
+    (DAY_LABEL, LUMA_DAY.name),
 ]
 
 QUALITY_LABELS = [
@@ -42,7 +41,7 @@ FOLDER_LABELS = [
 ]
 
 
-class SettingsScreen(Screen):
+class SettingsScreen(SizeAware, Screen):
     """Where the user changes how Luma behaves."""
 
     BINDINGS = [
@@ -55,7 +54,7 @@ class SettingsScreen(Screen):
         self._config = {}
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=False)
+        yield BrandBar(id="brand")
         yield Static("Settings", id="settings-title")
         # Only the fields scroll. The buttons below stay put, so Save is
         # always reachable however short the window is.
@@ -109,8 +108,10 @@ class SettingsScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.apply_size_classes()
         self._config = dict(getattr(self.app, "config", None) or load_config())
         self._fill(self._config)
+        self.query_one("#set-folder", Input).focus()
 
     # -- moving values in and out of the widgets -------------------------
     def _fill(self, cfg):
@@ -126,7 +127,7 @@ class SettingsScreen(Screen):
         self._set_select("#set-quality", cfg["quality"], "480")
         known = [v for _, v in THEME_CHOICES]
         self._set_select("#set-theme", cfg["theme"],
-                         "textual-dark" if cfg["theme"] not in known
+                         DEFAULT_THEME if cfg["theme"] not in known
                          else cfg["theme"])
         self._clear_errors()
 

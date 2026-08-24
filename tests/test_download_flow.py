@@ -186,7 +186,7 @@ async def test_single_download():
             check("a finished row shows its link, ready to copy",
                   detail == "https://youtu.be/abc", detail)
 
-            plan = text_of(screen.query_one("#plan-panel", Static))
+            plan = text_of(screen.query_one("#plan-note", Static))
             check("plan panel explains the setup in plain words",
                   "Videos at once" in plan, plan)
             check("plan panel names no tools",

@@ -4,15 +4,17 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import (
-    Button, DataTable, Footer, Header, Static, TabbedContent, TabPane,
+    Button, DataTable, Footer, Static, TabbedContent, TabPane,
 )
 
+from ..widgets.brandbar import BrandBar
+from ..widgets.sizing import SizeAware
 from ..history import (
     human_size, human_when, recent_downloads, recent_failures,
 )
 
 
-class HistoryScreen(Screen):
+class HistoryScreen(SizeAware, Screen):
     """Past downloads and anything that went wrong, read fresh from disk."""
 
     BINDINGS = [
@@ -26,7 +28,7 @@ class HistoryScreen(Screen):
         self._errors_path = errors_path
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=False)
+        yield BrandBar(id="brand")
         yield Static("History", id="history-title")
         with TabbedContent(id="history-tabs"):
             with TabPane("Downloads", id="tab-downloads"):
@@ -41,6 +43,7 @@ class HistoryScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.apply_size_classes()
         self.query_one("#history-table", DataTable).add_columns(
             "What", "When", "Size", "Quality"
         )

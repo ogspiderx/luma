@@ -180,7 +180,7 @@ async def test_idle_screens_are_still():
 
 async def test_layout_holds_in_both_themes():
     print("\n[light and dark]")
-    for theme in ("textual-dark", "textual-light"):
+    for theme in ("luma-night", "luma-day"):
         with tempfile.TemporaryDirectory() as td:
             cfg = os.path.join(td, "config.json")
             from luma.config import save_config
@@ -249,12 +249,13 @@ async def test_feedback_is_actually_on_screen():
     app = LumaApp(auto_prepare=False)
     async with app.run_test(size=(88, 26)) as pilot:
         screen = app.screen
-        screen._set_plan("Your speed: 5.6 Mbps   Videos at once: 1")
+        screen._set_plan("1 at a time   16 connections")
         await pilot.pause()
-        panel = screen.query_one("#plan-panel", Static)
-        check("the plan panel takes up space once filled",
-              panel.display and panel.region.height > 0,
-              f"display={panel.display} h={panel.region.height}")
+        panel = screen.query_one("#plan-note", Static)
+        check("the plan note takes up space once filled",
+              panel.display and panel.region.height > 0
+              and panel.region.width > 0,
+              f"display={panel.display} {panel.region}")
 
         await pilot.press("ctrl+s")
         await pilot.pause()

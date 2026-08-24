@@ -1,6 +1,6 @@
 # Luma
 
-A friendly YouTube downloader. Paste a link, press Download, get the video.
+A friendly YouTube downloader. Paste a link, press Enter, get the video.
 
 Luma runs in a window on your desktop and is built to be quick — it opens many
 connections at once and works out how many downloads your internet can handle,
@@ -12,7 +12,7 @@ rather than trickling one file at a time.
 
 1. **Double-click `run.bat`.**
 2. Paste a YouTube link into the box.
-3. Press **Download**.
+3. Press **Enter**.
 
 Luma opens maximised in its own window. **F11** makes it full screen. If you
 would rather have no tabs or title bar at all, start it with `run.bat --bare` —
@@ -38,17 +38,29 @@ After that, Luma starts in a second or two.
 
 | What you want | How |
 |---|---|
-| Download a video | Paste the link, press **Download** (or press Enter) |
+| Download a video | Paste the link, press Enter |
 | Download several | Paste several links separated by spaces |
 | Download a playlist | Paste the playlist link |
-| Stop a download | **Ctrl + X** |
+| Remove one from the list | Press the **✕** beside it |
+| Stop everything | **Ctrl + X** |
+| Clear finished ones | **Ctrl + L** |
 | Change how Luma works | **Ctrl + S** |
 | See what you've downloaded | **Ctrl + H** |
 | Close Luma | **Ctrl + Q** |
 
+The keys along the bottom change with what you can actually do — Stop only
+appears while something is running, so there is never a row of dead options.
+
 While a download runs you'll see a bar for each video with its size, speed and
 how long is left. Finished videos turn green; ones that didn't work turn red
 and say why.
+
+### Without a mouse
+
+Everything can be done from the keyboard. **Tab** moves forward through the
+screen and **Shift + Tab** back, wrapping round, so nothing needs clicking.
+Where a row is asking which quality to use, **←** and **→** move between the
+qualities and **Enter** picks one.
 
 ---
 
@@ -71,12 +83,15 @@ default.
 each link is actually available in and asks you to pick, showing roughly how
 big each one would be.
 
-Your links appear in the list the moment you paste them, and Luma checks
-several at a time in the background — so you can keep pasting, and remove
-anything you didn't mean to add, while it works. As soon as you answer the
-first question that video starts downloading; you don't wait for the rest.
-If you paste a lot at once, tick **Use my answer for the rest as well** and
-Luma stops asking. A link it cannot read quietly uses your usual setting.
+The question appears **in the row for that video**, not over the whole screen,
+so nothing is blocked while you decide: other videos carry on downloading, you
+can keep pasting links, and several questions can sit open at once. Your links
+appear in the list the moment you paste them and are checked several at a time.
+As soon as you answer one, that video starts — you don't wait for the rest.
+
+If you paste a lot at once, press **Ctrl + A** to use your last answer for
+every question still open. A link Luma cannot read quietly uses your usual
+setting instead.
 
 **Videos at once** — how many download simultaneously. More is usually faster
 on a quick connection, but not always.
@@ -86,8 +101,9 @@ the main reason Luma is fast. 16 is the maximum and the default; lower it only
 if your connection struggles.
 
 **Appearance** — Luma Night (ink and gold) is the default; Luma Day is the
-same idea for a bright room. A few other palettes are there if you prefer one
-you already know.
+same idea for a bright room. There are two, deliberately: the interface is
+built around one colour meaning one thing, and a scheme borrowed from
+somewhere else undoes that.
 
 **Skip videos I've already downloaded** — leave this on and Luma won't fetch
 the same video twice.
@@ -160,5 +176,16 @@ fixes this.
 - Luma never opens or plays what it downloads — the files are just saved for
   you.
 - Luma needs Windows and an internet connection. Nothing else.
+- Luma resizes with its window. Make it narrow and the optional details step
+  aside; make it wide and everything gets more room.
 
 Technical notes about how Luma protects you are in `SECURITY.md`.
+
+---
+
+## Making it your own
+
+Luma's name and colours live in one file, `luma/branding.py`. Change the name,
+the wordmark and the ten colours in it and the whole interface follows — the
+bar across the top, both themes, and every accent. Nothing else in the code
+hard-codes a colour or the product name.

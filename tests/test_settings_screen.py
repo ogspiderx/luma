@@ -200,14 +200,14 @@ async def test_theme_applies():
         app = LumaApp(config_path=cfg_path, auto_prepare=False)
         async with app.run_test() as pilot:
             screen = await open_settings(pilot, app)
-            screen.query_one("#set-theme", Select).value = "tokyo-night"
+            screen.query_one("#set-theme", Select).value = "luma-day"
             await pilot.pause()
             await pilot.click("#settings-save")
             await pilot.pause()
             check("theme applied immediately",
-                  app.theme == "tokyo-night", str(app.theme))
+                  app.theme == "luma-day", str(app.theme))
         check("theme survived a restart",
-              load_config(cfg_path)["theme"] == "tokyo-night")
+              load_config(cfg_path)["theme"] == "luma-day")
 
 
 async def test_language_is_plain():

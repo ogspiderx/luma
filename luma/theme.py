@@ -1,80 +1,56 @@
 """
-Luma's own colours.
+Luma's two themes, built from the brand palette.
 
-The name means light, so the palette is built around one: a warm gold that
-falls on a deep, slightly violet ink. Gold is reserved for the things that are
-actually happening -- the bar as it fills, the link box under the cursor -- so
-attention goes where the work is. Everything structural stays quiet.
-
-Two versions of the same idea, so the app looks deliberate in a dark room and
-on a bright screen, rather than inheriting whatever the terminal happened to
-be set to.
+There is no colour decision in here -- every value comes from `branding.py`,
+so re-skinning the app never means editing this file. What this module does
+is translate a Luma palette into the names Textual expects.
 """
 
 from textual.theme import Theme
 
-#: Night: ink and gold.
-LUMA_NIGHT = Theme(
-    name="luma-night",
-    dark=True,
-    # Deep ink with a violet cast, so black areas have some warmth.
-    background="#12111A",
-    surface="#1B1A26",
-    panel="#252435",
-    boost="#2E2C40",
-    foreground="#EDEAF5",
-    # The light itself.
-    primary="#E5B54D",
-    accent="#F2C55C",
-    # A quiet violet for anything supporting.
-    secondary="#9B8CE0",
-    success="#5FB98F",
-    warning="#E8A24B",
-    error="#E06C75",
-    variables={
-        "block-cursor-foreground": "#12111A",
-        "block-cursor-background": "#E5B54D",
-        "input-selection-background": "#9B8CE0 35%",
-        "footer-key-foreground": "#F2C55C",
-        "border": "#2E2C40",
-        "scrollbar": "#252435",
-        "scrollbar-hover": "#3A3850",
-        "scrollbar-active": "#E5B54D",
-    },
-)
+from .branding import DAY, NIGHT
 
-#: Day: warm paper and a deeper gold, so the same character survives daylight.
-LUMA_DAY = Theme(
-    name="luma-day",
-    dark=False,
-    background="#FBF9F4",
-    surface="#FFFFFF",
-    panel="#F1ECE1",
-    boost="#E8E1D2",
-    foreground="#2A2735",
-    # Darkened so it still reads as gold against paper.
-    primary="#A87C1F",
-    accent="#C2942C",
-    secondary="#6B5CB8",
-    success="#3D8F6A",
-    warning="#B87A22",
-    error="#C0504D",
-    variables={
-        "block-cursor-foreground": "#FBF9F4",
-        "block-cursor-background": "#A87C1F",
-        "input-selection-background": "#6B5CB8 25%",
-        "footer-key-foreground": "#A87C1F",
-        "border": "#DCD4C4",
-        "scrollbar": "#E8E1D2",
-        "scrollbar-hover": "#D8CFBC",
-        "scrollbar-active": "#A87C1F",
-    },
-)
+
+def _build(name, palette, dark):
+    """Turn a Luma palette into a theme Textual can apply."""
+    return Theme(
+        name=name,
+        dark=dark,
+        background=palette["ground"],
+        surface=palette["surface"],
+        panel=palette["panel"],
+        boost=palette["boost"],
+        foreground=palette["text"],
+        primary=palette["light"],
+        accent=palette["glow"],
+        secondary=palette["support"],
+        success=palette["good"],
+        warning=palette["caution"],
+        error=palette["bad"],
+        variables={
+            "block-cursor-foreground": palette["ground"],
+            "block-cursor-background": palette["light"],
+            "input-selection-background": palette["selection"],
+            "footer-key-foreground": palette["glow"],
+            "border": palette["rule"],
+            "scrollbar": palette["track"],
+            "scrollbar-hover": palette["track_hover"],
+            "scrollbar-active": palette["light"],
+        },
+    )
+
+
+LUMA_NIGHT = _build("luma-night", NIGHT, dark=True)
+LUMA_DAY = _build("luma-day", DAY, dark=False)
 
 THEMES = (LUMA_NIGHT, LUMA_DAY)
 
 #: What a fresh install opens with.
 DEFAULT_THEME = LUMA_NIGHT.name
+
+#: The only themes Luma offers. Anything saved that is not one of these falls
+#: back to the default rather than borrowing a palette from elsewhere.
+THEME_NAMES = tuple(theme.name for theme in THEMES)
 
 
 def register(app):

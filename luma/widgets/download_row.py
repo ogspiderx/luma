@@ -3,6 +3,7 @@
 import re
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widget import Widget
@@ -22,6 +23,18 @@ _RATE = re.compile(r"([\d.]+)\s*([KMGT]?)i?B/s", re.IGNORECASE)
 _SCALE = {"": 1, "K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
 
 
+def _compact_size(size_bytes):
+    """"205MB" -- a size short enough to sit on a chip, or "" if unknown."""
+    if not size_bytes:
+        return ""
+    value = float(size_bytes)
+    for unit in ("KB", "MB", "GB"):
+        value /= 1024
+        if value < 1024 or unit == "GB":
+            return f"{value:.1f}{unit}" if value < 10 else f"{value:.0f}{unit}"
+    return ""
+
+
 def rate_to_bytes(text):
     """Turn a speed like '712KiB/s' into bytes per second, or 0."""
     match = _RATE.search(text or "")
@@ -33,6 +46,46 @@ def rate_to_bytes(text):
         return 0.0
 
 
+class QualityChip(Button):
+    """One quality to pick, sat in the row it belongs to.
+
+    Left and right walk the qualities on offer without leaving the row, so
+    answering is two keys: an arrow or two, then Enter. Tab still moves on
+    in the ordinary way.
+    """
+
+    BINDINGS = [
+        Binding("left", "chip_previous", "Previous", show=False),
+        Binding("right", "chip_next", "Next", show=False),
+    ]
+
+    def __init__(self, label, height, **kwargs):
+        super().__init__(label, **kwargs)
+        #: The height this chip stands for, or "" for the skip chip.
+        self.height_value = height
+
+    def _row_chips(self):
+        parent = self.parent
+        if parent is None:
+            return [self]
+        chips = [w for w in parent.children if isinstance(w, QualityChip)]
+        return chips or [self]
+
+    def _step(self, delta):
+        chips = self._row_chips()
+        try:
+            here = chips.index(self)
+        except ValueError:
+            return
+        chips[(here + delta) % len(chips)].focus()
+
+    def action_chip_previous(self) -> None:
+        self._step(-1)
+
+    def action_chip_next(self) -> None:
+        self._step(1)
+
+
 class DownloadRow(Widget):
     """Shows one video's title, progress and current state."""
 
@@ -42,6 +95,14 @@ class DownloadRow(Widget):
         def __init__(self, row):
             super().__init__()
             self.row = row
+
+    class QualityChosen(Message):
+        """The person picked a quality from this row."""
+
+        def __init__(self, row, height):
+            super().__init__()
+            self.row = row
+            self.height = height
 
     def __init__(self, tag, url, **kwargs):
         super().__init__(**kwargs)
@@ -57,6 +118,8 @@ class DownloadRow(Widget):
         self._detail = "Waiting..."
         #: Position in the list, so "order added" can be restored.
         self.sequence = 0
+        #: Set while this row is asking which quality to use.
+        self._choices = []
 
     # -- what the row is about -------------------------------------------
     @property
@@ -85,6 +148,11 @@ class DownloadRow(Widget):
     def started(self):
         """True once this row has had any progress at all."""
         return self._started
+
+    @property
+    def choosing(self):
+        """True while this row is waiting for a quality to be picked."""
+        return bool(self._choices)
 
     @property
     def percent(self):
@@ -137,7 +205,7 @@ class DownloadRow(Widget):
 
     def set_waiting(self, position=None):
         """Mark this row as queued, and say where in the queue it is."""
-        if self._finished or self._started:
+        if self._finished or self._started or self._choices:
             return
         if position == 1:
             self.set_detail("Next up")
@@ -146,10 +214,67 @@ class DownloadRow(Widget):
         else:
             self.set_detail("Waiting...")
 
+    def set_checking(self):
+        """Mark this row as being looked up."""
+        self.set_detail("Checking what it comes in...")
+
+    # -- asking which quality, in the row itself --------------------------
+    def offer_choices(self, choices):
+        """Put the qualities on offer in this row and wait for an answer.
+
+        Asking here rather than over the whole screen means the rest of the
+        list stays visible and usable: other rows carry on downloading, more
+        links can be pasted, and several questions can sit open at once.
+        """
+        self._choices = list(choices or [])
+        if not self._choices:
+            return
+        self.add_class("-choosing")
+        self.set_detail("Which quality?")
+        try:
+            holder = self.query_one(".row-main")
+        except Exception:                              # noqa: BLE001
+            return          # not drawn yet; the caller will try again
+        strip = Horizontal(classes="row-choices")
+        holder.mount(strip)
+        strip.mount_all([
+            QualityChip(self._chip_label(choice), str(choice["height"]),
+                        classes="quality-chip")
+            for choice in self._choices
+        ] + [QualityChip("Skip", "", classes="quality-chip -skip")])
+
+    @staticmethod
+    def _chip_label(choice):
+        """"1080p 205MB" -- short enough that the whole row of them fits.
+
+        The full sentence ("about 205.0 MB") is right in a paragraph and
+        wrong on a chip: four of them at that length run off the end of a
+        narrow window, taking the way out with them.
+        """
+        size = _compact_size(choice.get("filesize") or 0)
+        return f"{choice['label']} {size}".strip() if size else choice["label"]
+
+    def clear_choices(self):
+        """Take the question away, however it was answered."""
+        self._choices = []
+        self.remove_class("-choosing")
+        for strip in self.query(".row-choices"):
+            strip.remove()
+
+    def focus_choices(self):
+        """Put the cursor on the first quality on offer, if there is one."""
+        chips = list(self.query(QualityChip))
+        if chips:
+            chips[0].focus()
+            return True
+        return False
+
     def set_progress(self, parsed):
         """Apply a progress reading covering the whole video."""
         if self._finished:
             return
+        if self._choices:
+            self.clear_choices()
         self._started = True
         # Clamp here as well as in the engine: a bar that reads past 100%
         # destroys trust in everything else on screen.
@@ -192,6 +317,7 @@ class DownloadRow(Widget):
         A finished row shows its link, so it can be copied or opened again;
         the running figures are no longer meaningful once it is done.
         """
+        self.clear_choices()
         self._finished = True
         self._ok = bool(ok)
         self._started = True
@@ -212,8 +338,16 @@ class DownloadRow(Widget):
             lambda: self.remove_class("-just-finished"),
         )
 
-    # -- removing --------------------------------------------------------
+    # -- buttons ---------------------------------------------------------
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if "row-remove" in event.button.classes:
+        button = event.button
+        if isinstance(button, QualityChip):
+            event.stop()
+            if button.height_value:
+                self.post_message(self.QualityChosen(self, button.height_value))
+            else:
+                self.post_message(self.RemoveRequested(self))
+            return
+        if "row-remove" in button.classes:
             event.stop()
             self.post_message(self.RemoveRequested(self))

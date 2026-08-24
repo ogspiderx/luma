@@ -10,9 +10,10 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import (
-    Button, Footer, Header, Input, LoadingIndicator, Select, Static,
+    Button, Footer, Input, LoadingIndicator, Select, Static,
 )
 
+from ..branding import LINK_PLACEHOLDER
 from ..config import resolve_output_dir
 from ..engine import download as dl
 from ..engine.callbacks import EngineCallbacks
@@ -29,8 +30,9 @@ from ..engine.speedtest import measure_bandwidth
 from ..engine.tools import ensure_tools
 from ..history import record_results, recent_downloads
 from ..locations import DEFAULT_DOWNLOAD_DIR
+from ..widgets.brandbar import BrandBar
 from ..widgets.download_row import DownloadRow
-from .quality import QualityScreen
+from ..widgets.sizing import SizeAware
 
 #: How many links to look up at the same time. Enough that a pasted list is
 #: dealt with quickly, few enough that it does not swamp a modest connection.
@@ -46,14 +48,24 @@ SORT_OPTIONS = [
 ]
 
 
-class MainScreen(Screen):
+class MainScreen(SizeAware, Screen):
     """The screen the user lands on."""
 
+    #: Only keys that do something right now are offered. `check_action`
+    #: below decides, and the footer follows -- so it stays three or four
+    #: items on a quiet screen rather than a row of greyed-out words.
+    #:
+    #: These are marked priority because the cursor is normally in the link
+    #: box, and a text box claims ctrl+x and ctrl+a for cut and select-all.
+    #: Without priority, Stop silently did nothing whenever the box had the
+    #: cursor -- which is almost always. Cut and select-all in a one-line
+    #: box of pasted links are worth less than commands that always work.
     BINDINGS = [
-        Binding("ctrl+s", "open_settings", "Settings"),
-        Binding("ctrl+h", "open_history", "History"),
-        Binding("ctrl+x", "stop_downloads", "Stop"),
-        Binding("ctrl+l", "clear_finished", "Clear done"),
+        Binding("ctrl+s", "open_settings", "Settings", priority=True),
+        Binding("ctrl+h", "open_history", "History", priority=True),
+        Binding("ctrl+a", "same_for_all", "Same for all", priority=True),
+        Binding("ctrl+x", "stop_downloads", "Stop", priority=True),
+        Binding("ctrl+l", "clear_finished", "Clear done", priority=True),
         Binding("pageup", "scroll_list_up", "Scroll up", show=False),
         Binding("pagedown", "scroll_list_down", "Scroll down", show=False),
     ]
@@ -67,23 +79,17 @@ class MainScreen(Screen):
         self._speed_timer = None
         self._sequence = 0
         self._sort_mode = "added"
-        # Links whose qualities are known, waiting to be asked about.
-        self._pending_asks = []          # (tag, url, title, choices)
-        self._asking = False             # a chooser is on screen right now
-        self._ask_all = None             # "use this for the rest" answer
         self._checking = set()           # tags whose lookup is still running
+        self._awaiting = set()           # tags asking which quality to use
+        self._last_choice = None         # the last quality picked by hand
+        self._plan_note = ""
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=False)
+        yield BrandBar(id="brand")
         with Vertical(id="main-body"):
-            yield Static("Paste a YouTube link to get started.", id="tagline")
             with Horizontal(id="link-row"):
-                yield Input(
-                    placeholder="https://youtube.com/watch?v=...",
-                    id="url-input",
-                )
+                yield Input(placeholder=LINK_PLACEHOLDER, id="url-input")
                 yield Button("Download", variant="primary", id="download-btn")
-            yield Static("", id="plan-panel")
             with Horizontal(id="list-header"):
                 yield Static("", id="queue-note")
                 yield Select(SORT_OPTIONS, id="sort-select", allow_blank=False,
@@ -92,15 +98,18 @@ class MainScreen(Screen):
             with Horizontal(id="status-row"):
                 yield LoadingIndicator(id="busy")
                 yield Static("Getting ready...", id="status-line")
+                yield Static("", id="plan-note")
                 yield Button("Stop", variant="error", id="stop-btn")
                 yield Button("Clear done", id="clear-btn")
         yield Footer()
 
     def on_mount(self) -> None:
+        self.apply_size_classes()
         self.query_one("#stop-btn", Button).display = False
         self.query_one("#clear-btn", Button).display = False
         self.query_one("#list-header").display = False
         self.query_one("#url-input", Input).focus()
+        self._show_destination()
         if getattr(self.app, "auto_prepare", True):
             self._set_busy(True)
             self._prepare_worker()
@@ -111,6 +120,25 @@ class MainScreen(Screen):
     def _set_busy(self, busy):
         """Show or hide the spinner. Nothing animates when idle."""
         self.query_one("#busy", LoadingIndicator).display = bool(busy)
+
+    def _show_destination(self):
+        """Put where videos are going in the bar, since nothing else says."""
+        try:
+            self.query_one("#brand", BrandBar).set_note(
+                str(self._settings()["output_dir"]))
+        except Exception:                              # noqa: BLE001
+            pass
+
+    # -- which keys are worth offering ------------------------------------
+    def check_action(self, action, parameters):
+        """Hide keys that would do nothing, so the footer stays short."""
+        if action == "stop_downloads":
+            return self._download_active
+        if action == "clear_finished":
+            return any(row.finished for row in self._rows.values())
+        if action == "same_for_all":
+            return len(self._awaiting) > 1
+        return True
 
     # -- settings the download runs with ---------------------------------
     def _settings(self):
@@ -207,8 +235,8 @@ class MainScreen(Screen):
 
         # It may instead be waiting to be asked about, or still being looked
         # up -- in which case there is nothing running to stop.
-        being_asked = any(entry[0] == tag for entry in self._pending_asks)
-        self._pending_asks = [e for e in self._pending_asks if e[0] != tag]
+        being_asked = tag in self._awaiting
+        self._awaiting.discard(tag)
         not_started = bool(still_waiting) or being_asked or tag in self._checking
 
         if not row.finished and not not_started:
@@ -219,6 +247,7 @@ class MainScreen(Screen):
         row.remove()
         self._rows.pop(tag, None)
         self._after_list_change()
+        self._settle_checks()
 
     def _after_list_change(self):
         """Everything that must be true again after the list is altered.
@@ -230,6 +259,7 @@ class MainScreen(Screen):
         self._refresh_queue_note()
         self._renumber_waiting()
         self.query_one("#list-header").display = bool(self._rows)
+        self.refresh_bindings()        # the footer follows what is possible
 
     def _refresh_buttons(self):
         """Stop is offered while running; Clear only when there is idle work."""
@@ -238,6 +268,7 @@ class MainScreen(Screen):
         self.query_one("#clear-btn", Button).display = (
             bool(finished) and not self._download_active
         )
+        self.refresh_bindings()
 
     def _refresh_queue_note(self):
         with self._queue_lock:
@@ -361,8 +392,10 @@ class MainScreen(Screen):
     #
     #  Looking a link up takes a few seconds, so nothing here waits on it.
     #  The rows go up straight away, the lookups run several at a time, and
-    #  each answer is acted on as it lands -- so the first video starts
-    #  downloading while the rest are still being asked about.
+    #  each question is asked in the row it belongs to -- so the rest of the
+    #  list stays visible and usable, several questions can sit open at once,
+    #  and the first video downloads while later ones are still being asked
+    #  about.
 
     def _begin_checks(self, urls):
         """List the links at once, then find out what they are available in."""
@@ -371,7 +404,7 @@ class MainScreen(Screen):
             self._sequence += 1
             tag = str(self._sequence)
             self._add_row(tag, url)
-            self._rows[tag].set_detail("Checking what qualities it comes in...")
+            self._rows[tag].set_checking()
             entries.append((tag, url))
             self._checking.add(tag)
         self._after_list_change()
@@ -449,53 +482,77 @@ class MainScreen(Screen):
             row.set_detail("Could not read the qualities - "
                            "using your usual setting.")
             self._queue_checked(tag, url, None)
-        elif self._ask_all:
-            self._queue_checked(tag, url, self._ask_all)
         else:
-            self._pending_asks.append((tag, url, title, choices))
-            row.set_detail("Waiting for you to choose a quality")
-            self._pump_asks()
+            self._awaiting.add(tag)
+            row.offer_choices(choices)
+            self._maybe_focus_choices(row)
         self._settle_checks()
 
-    def _pump_asks(self):
-        """Put the next chooser on screen, one at a time."""
-        while not self._asking and self._pending_asks:
-            tag, url, title, choices = self._pending_asks.pop(0)
-            if tag not in self._rows:
-                continue                          # removed while it waited
-            self._asking = True
-            remaining = len(self._pending_asks) + len(self._checking)
-            self.app.push_screen(
-                QualityScreen(title or url, choices, remaining=remaining),
-                lambda result, tag=tag, url=url: self._quality_chosen(
-                    tag, url, result),
-            )
+    def _maybe_focus_choices(self, row):
+        """Put the cursor on the question, but never take it mid-sentence.
+
+        A question that appears with the cursor still in the link box is one
+        the keyboard cannot reach without a Tab nobody was told about, so the
+        cursor does move -- unless it would interrupt something. Half-typed
+        text in the box means they are still pasting, and a cursor already on
+        another question means they are already answering.
+        """
+        here = self.focused
+        if isinstance(here, Input) and here.value.strip():
             return
+        if here is not None and "quality-chip" in here.classes:
+            return
+        row.focus_choices()
 
-    def _quality_chosen(self, tag, url, result):
-        """What came back from the chooser."""
-        self._asking = False
-        if result is None:
-            row = self._rows.pop(tag, None)
-            if row is not None:
-                row.remove()
-                self._after_list_change()
-            self.app.notify("Skipped that link.")
-        else:
-            height = str(result.get("height"))
-            if result.get("apply_all"):
-                self._ask_all = height
-                self._answer_the_rest(height)
-            self._queue_checked(tag, url, height)
-        self._pump_asks()
+    # -- answering -------------------------------------------------------
+    def on_download_row_quality_chosen(
+        self, event: DownloadRow.QualityChosen
+    ) -> None:
+        """A quality was picked in a row: queue that link and move on."""
+        event.stop()
+        row = event.row
+        tag = row.tag
+        self._awaiting.discard(tag)
+        self._last_choice = str(event.height)
+        row.clear_choices()
+        row.set_waiting()
+        self._queue_checked(tag, row.url, self._last_choice)
+        self._focus_next_question()
         self._settle_checks()
 
-    def _answer_the_rest(self, height):
-        """Use one answer for every link still waiting to be asked about."""
-        pending, self._pending_asks = self._pending_asks, []
-        for tag, url, _title, _choices in pending:
-            if tag in self._rows:
-                self._queue_checked(tag, url, height)
+    def _focus_next_question(self):
+        """Move the cursor to the next row still asking, so keys keep working."""
+        for row in self._ordered_rows():
+            if row.choosing and row.focus_choices():
+                return
+        # Nothing left to answer: hand the keyboard back to the link box.
+        self.query_one("#url-input", Input).focus()
+
+    def action_same_for_all(self) -> None:
+        """Answer every open question at once, with the last quality picked."""
+        if not self._awaiting:
+            return
+        height = self._last_choice or self._settings()["quality"]
+        answered = 0
+        for tag in list(self._awaiting):
+            row = self._rows.get(tag)
+            if row is None:
+                self._awaiting.discard(tag)
+                continue
+            self._awaiting.discard(tag)
+            row.clear_choices()
+            row.set_waiting()
+            self._queue_checked(tag, row.url, str(height))
+            answered += 1
+        if answered:
+            self.app.notify(f"Using {height}p for {answered} more.")
+        self.query_one("#url-input", Input).focus()
+        self._settle_checks()
+
+    def _ordered_rows(self):
+        """The rows in the order they appear on screen."""
+        holder = self.query_one("#downloads", VerticalScroll)
+        return [w for w in holder.children if isinstance(w, DownloadRow)]
 
     def _queue_checked(self, tag, url, quality):
         """Put an already-listed link on the queue, now its quality is known.
@@ -510,11 +567,21 @@ class MainScreen(Screen):
         self._ensure_worker()
 
     def _settle_checks(self):
-        """Tidy up once every lookup and every question has been dealt with."""
-        if self._checking or self._pending_asks or self._asking:
+        """Say what is still outstanding, and go quiet once nothing is."""
+        self.refresh_bindings()
+        if self._checking:
             self._announce_checking()
             return
-        self._ask_all = None            # a later paste is asked about afresh
+        if self._awaiting:
+            waiting = len(self._awaiting)
+            self._set_busy(False)
+            if not self._download_active:
+                self._set_status(
+                    f"{waiting} link{'s' if waiting != 1 else ''} "
+                    f"waiting for you to choose a quality."
+                )
+            return
+        self._last_choice = None        # a later paste starts afresh
         if not self._download_active:
             self._set_busy(False)
             self._set_status("Ready.")
@@ -630,7 +697,13 @@ class MainScreen(Screen):
         self.query_one("#status-line", Static).update(text)
 
     def _set_plan(self, text):
-        self.query_one("#plan-panel", Static).update(text)
+        """How the download is being run: one quiet line, not a panel.
+
+        It is worth knowing and worth nothing more, so it sits beside the
+        status line and disappears entirely on a narrow window.
+        """
+        self._plan_note = text or ""
+        self.query_one("#plan-note", Static).update(self._plan_note)
 
     def _add_row(self, tag, url):
         row = DownloadRow(tag, url)
@@ -665,21 +738,24 @@ class MainScreen(Screen):
             self._apply_sort()
 
     def _finished(self, ok_count, fail_count, output_dir):
+        # Where things were saved is in the bar across the top the whole
+        # time, so it is not repeated here.
         self._download_active = False
         self._stop_speed_readout()
         self._set_busy(False)
         self.query_one("#download-btn", Button).disabled = False
         self._after_list_change()
         if fail_count and not ok_count:
-            self._set_status("Nothing downloaded. See the messages above.")
+            self._set_status("Nothing downloaded. See the list above.")
         elif fail_count:
             self._set_status(
-                f"Finished: {ok_count} saved, {fail_count} did not work. "
-                f"Saved in {output_dir}"
+                f"Finished - {ok_count} saved, {fail_count} did not work."
             )
         else:
-            self._set_status(f"All done. Saved in {output_dir}")
-        self.query_one("#url-input", Input).focus()
+            saved = f"{ok_count} " if ok_count > 1 else ""
+            self._set_status(f"All done - {saved}saved.")
+        if not self._awaiting:
+            self.query_one("#url-input", Input).focus()
 
     # -- the worker ------------------------------------------------------
     def _take_batch(self, size):

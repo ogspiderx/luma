@@ -14,7 +14,11 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from textual.widgets import Button, Input, Select, Static, Switch  # noqa: E402
+from textual.widgets import (                                     # noqa: E402
+    Button, Input, ProgressBar, Select, Static, Switch,
+)
+
+from luma.widgets.download_row import DownloadRow, QualityChip  # noqa: E402
 
 from luma.app import LumaApp                                    # noqa: E402
 from luma.config import DEFAULTS, load_config, normalize, save_config  # noqa: E402
@@ -22,7 +26,6 @@ from luma.engine import formats as formats_mod                   # noqa: E402
 from luma.engine.formats import (                                # noqa: E402
     available_qualities, describe_height, size_note,
 )
-from luma.screens.quality import QualityScreen                   # noqa: E402
 from luma.screens.settings import THEME_CHOICES                  # noqa: E402
 from luma.theme import DEFAULT_THEME, THEMES                     # noqa: E402
 
@@ -222,110 +225,156 @@ async def test_the_switch_is_wired():
               load_config(cfg)["ask_quality"] is True)
 
 
-async def test_the_chooser_offers_and_returns():
-    print("\n[the chooser]")
+async def test_the_chooser_lives_in_the_row():
+    print("\n[the chooser sits in the row it belongs to]")
     app = LumaApp(auto_prepare=False)
     async with app.run_test(size=(90, 30)) as pilot:
-        choices = [
-            {"height": 1080, "label": "1080p", "note": "about 205.0 MB"},
-            {"height": 720, "label": "720p", "note": "about 105.0 MB"},
-            {"height": 480, "label": "480p", "note": "about 55.0 MB"},
-        ]
-        result = {}
+        app.screen._queue_worker = lambda: None
+        holder = app.screen.query_one("#downloads")
+        row = DownloadRow("1", "https://youtu.be/aaa")
+        app.screen._rows["1"] = row
+        holder.mount(row)
+        await pilot.pause()
+        row.set_title("A Test Video")
 
-        def remember(value):
-            result["chosen"] = value
+        check("nothing is asked until there is something to ask",
+              not row.choosing)
 
-        app.push_screen(QualityScreen("A Test Video", choices), remember)
+        row.offer_choices([
+            {"height": 1080, "label": "1080p", "note": "about 205.0 MB",
+             "filesize": 205 * 1024 ** 2},
+            {"height": 720, "label": "720p", "note": "about 105.0 MB",
+             "filesize": 105 * 1024 ** 2},
+            {"height": 480, "label": "480p", "note": "about 55.0 MB",
+             "filesize": 55 * 1024 ** 2},
+        ])
         await pilot.pause()
 
-        screen = app.screen
-        check("the chooser is on screen", isinstance(screen, QualityScreen))
-        check("the video is named",
-              "A Test Video" in text_of(screen.query_one("#quality-title",
-                                                         Static)))
-        buttons = screen.query(".quality-option")
-        check("one button per quality", len(buttons) == 3, str(len(buttons)))
-        first = str(buttons[0].label)
-        check("each says its size", "205.0 MB" in first, first)
+        check("the row knows it is asking", row.choosing)
+        check("nothing was pushed over the whole screen",
+              app.screen is app.screen_stack[-1]
+              and type(app.screen).__name__ == "MainScreen",
+              type(app.screen).__name__)
+        check("the row is still the one named",
+              text_of(row.query_one(".row-title", Static)) == "A Test Video")
 
-        await pilot.click("#quality-720")
+        chips = list(row.query(QualityChip))
+        check("one chip per quality, plus a way out",
+              len(chips) == 4, str([str(c.label) for c in chips]))
+        check("each chip says its size",
+              "205MB" in str(chips[0].label), str(chips[0].label))
+        check("sizes are short enough for a chip",
+              len(str(chips[0].label)) <= 14, str(chips[0].label))
+        check("the last one skips the link",
+              str(chips[-1].label) == "Skip" and chips[-1].height_value == "",
+              str(chips[-1].label))
+        check("the bar is out of the way while asking",
+              not row.query_one(ProgressBar).display)
+
+        await pilot.click(chips[1])
         await pilot.pause()
-        chosen = result.get("chosen") or {}
-        check("choosing one returns its height",
-              chosen.get("height") == "720", str(result))
-        check("with nothing else asked for, it applies only to this link",
-              chosen.get("apply_all") is False, str(result))
+        with app.screen._queue_lock:
+            queued = list(app.screen._queue)
+        check("clicking a chip queues that link at that quality",
+              queued == [("1", "https://youtu.be/aaa", "720")], str(queued))
+        check("and the question is taken away", not row.choosing)
 
 
-async def test_the_chooser_says_how_many_are_left():
-    print("\n[being told how many links are left]")
+async def test_the_chooser_works_from_the_keyboard():
+    print("\n[answering with the keyboard alone]")
     app = LumaApp(auto_prepare=False)
     async with app.run_test(size=(90, 30)) as pilot:
-        choices = [{"height": 720, "label": "720p", "note": ""},
-                   {"height": 480, "label": "480p", "note": ""}]
-        result = {}
-
-        app.push_screen(QualityScreen("A Test Video", choices, remaining=4),
-                        lambda value: result.update(chosen=value))
+        app.screen._queue_worker = lambda: None
+        holder = app.screen.query_one("#downloads")
+        row = DownloadRow("1", "https://youtu.be/aaa")
+        app.screen._rows["1"] = row
+        holder.mount(row)
         await pilot.pause()
-        screen = app.screen
-        count = text_of(screen.query_one("#quality-count", Static))
-        check("it says how many more there are", "4 more links" in count, count)
-        check("the offer to answer for the rest is there",
-              bool(screen.query("#quality-apply-all")))
-
-        screen.query_one("#quality-apply-all", Switch).value = True
+        row.offer_choices([
+            {"height": 1080, "label": "1080p", "note": ""},
+            {"height": 720, "label": "720p", "note": ""},
+            {"height": 480, "label": "480p", "note": ""},
+        ])
         await pilot.pause()
-        await pilot.click("#quality-720")
-        await pilot.pause()
-        chosen = result.get("chosen") or {}
-        check("the answer is marked as standing for the rest",
-              chosen.get("apply_all") is True, str(result))
-        check("and it still carries the height",
-              chosen.get("height") == "720", str(result))
 
+        check("the first quality can be reached", row.focus_choices())
+        await pilot.pause()
+        chips = list(row.query(QualityChip))
+        check("and holds the cursor", app.focused is chips[0],
+              str(app.focused))
+
+        await pilot.press("right")
+        await pilot.pause()
+        check("right moves along", app.focused is chips[1], str(app.focused))
+        await pilot.press("left", "left")
+        await pilot.pause()
+        check("left goes back, and wraps at the end",
+              app.focused is chips[-1], str(app.focused))
+
+        await pilot.press("right")
+        await pilot.pause()
+        check("and wraps round the other way",
+              app.focused is chips[0], str(app.focused))
+
+        await pilot.press("enter")
+        await pilot.pause()
+        with app.screen._queue_lock:
+            queued = list(app.screen._queue)
+        check("enter answers with what is under the cursor",
+              queued and queued[0][2] == "1080", str(queued))
+        check("and the cursor goes back to the link box",
+              isinstance(app.focused, Input), str(app.focused))
+
+
+async def test_skipping_from_the_row():
+    print("\n[skipping from the row]")
     app = LumaApp(auto_prepare=False)
     async with app.run_test(size=(90, 30)) as pilot:
-        app.push_screen(
-            QualityScreen("A Test Video",
-                          [{"height": 480, "label": "480p", "note": ""}]),
-            lambda value: None,
-        )
+        app.screen._queue_worker = lambda: None
+        holder = app.screen.query_one("#downloads")
+        row = DownloadRow("1", "https://youtu.be/aaa")
+        app.screen._rows["1"] = row
+        holder.mount(row)
         await pilot.pause()
-        screen = app.screen
-        check("a single link is not asked about the rest",
-              not screen.query("#quality-apply-all"))
-        check("nor told how many are left", not screen.query("#quality-count"))
+        row.offer_choices([{"height": 480, "label": "480p", "note": ""}])
+        await pilot.pause()
+
+        chips = list(row.query(QualityChip))
+        await pilot.click(chips[-1])
+        await pilot.pause()
+        check("the row is taken out of the list",
+              row not in holder.children, str(list(holder.children)))
+        with app.screen._queue_lock:
+            queued = list(app.screen._queue)
+        check("and nothing is queued for it", queued == [], str(queued))
 
 
-async def test_the_chooser_can_be_declined():
-    print("\n[backing out of the chooser]")
+async def test_the_question_goes_away_when_answered():
+    print("\n[the question clears]")
     app = LumaApp(auto_prepare=False)
     async with app.run_test(size=(90, 30)) as pilot:
-        result = {}
-        app.push_screen(
-            QualityScreen("A Test Video",
-                          [{"height": 480, "label": "480p", "note": ""}]),
-            lambda value: result.update(chosen=value),
-        )
+        app.screen._queue_worker = lambda: None
+        holder = app.screen.query_one("#downloads")
+        row = DownloadRow("1", "https://youtu.be/aaa")
+        app.screen._rows["1"] = row
+        holder.mount(row)
         await pilot.pause()
-        await pilot.press("escape")
+        row.offer_choices([{"height": 480, "label": "480p", "note": ""}])
         await pilot.pause()
-        check("escape returns nothing chosen",
-              result.get("chosen", "unset") is None, str(result))
 
-        result.clear()
-        app.push_screen(
-            QualityScreen("A Test Video",
-                          [{"height": 480, "label": "480p", "note": ""}]),
-            lambda value: result.update(chosen=value),
-        )
+        row.clear_choices()
         await pilot.pause()
-        await pilot.click("#quality-cancel")
+        check("the chips are gone", not list(row.query(QualityChip)))
+        check("and the row no longer counts as asking", not row.choosing)
+        check("the bar is back", row.query_one(ProgressBar).display)
+
+        # Progress arriving on its own takes the question away too, so a
+        # download that starts anyway never leaves a stale question behind.
+        row.offer_choices([{"height": 480, "label": "480p", "note": ""}])
         await pilot.pause()
-        check("cancel does the same",
-              result.get("chosen", "unset") is None, str(result))
+        row.set_progress({"percent": 10.0})
+        await pilot.pause()
+        check("progress clears any question still showing", not row.choosing)
 
 
 async def test_a_chosen_quality_is_carried_through():
@@ -366,9 +415,10 @@ async def run_all():
     test_failures_come_back_empty()
     test_the_setting_exists()
     await test_the_switch_is_wired()
-    await test_the_chooser_offers_and_returns()
-    await test_the_chooser_says_how_many_are_left()
-    await test_the_chooser_can_be_declined()
+    await test_the_chooser_lives_in_the_row()
+    await test_the_chooser_works_from_the_keyboard()
+    await test_skipping_from_the_row()
+    await test_the_question_goes_away_when_answered()
     await test_a_chosen_quality_is_carried_through()
 
     print("\n" + "=" * 62)

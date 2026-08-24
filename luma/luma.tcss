@@ -1,17 +1,28 @@
 /* ------------------------------------------------------------------ *
  *  Luma
  *
- *  The idea is light falling in a dark room. The background stays deep
- *  and quiet; gold is spent only on what is actually happening -- the
- *  bar as it fills, the box under the cursor, the key hints -- so the
- *  eye is drawn to the work rather than to the furniture.
+ *  Light falling in a dark room. The ground stays deep and quiet; the
+ *  brand colour is spent only on what is actually happening -- the bar
+ *  as it fills, the box under the cursor, the question being asked --
+ *  so the eye goes to the work rather than to the furniture.
  *
- *  Every colour comes from the active theme, so choosing a different
- *  one in Settings re-tints the whole app rather than fighting it.
+ *  Every colour comes from the active theme, and every theme is built
+ *  from branding.py, so re-skinning the app never means editing this
+ *  file.
  *
- *  Motion is limited to three places, each tied to something the user
- *  is waiting on: the spinner while preparing, the bar filling, and a
- *  brief highlight when a download lands. Idle screens do not move.
+ *  SPACING SCALE. One scale, three sizes, applied from the outside in.
+ *  Screens carry -narrow / -roomy / -short (see widgets/sizing.py), and
+ *  only the gutter and the block gap change between them. Nothing sets
+ *  a padding for itself; that is what made the old layout look like a
+ *  different app at every window size.
+ *
+ *      gutter     1 / 2 / 4 columns   the margin down each side
+ *      block gap  1 line              between one thing and the next
+ *      row gap    1 line              between downloads in the list
+ *
+ *  MOTION. Three places, each tied to something being waited on: the
+ *  spinner while preparing, the bar filling, and a brief highlight as a
+ *  download lands. Idle screens do not move.
  * ------------------------------------------------------------------ */
 
 Screen {
@@ -20,11 +31,44 @@ Screen {
 
 /* -- the bar across the top -- */
 
-Header {
+BrandBar {
+    height: 1;
     background: $surface;
-    color: $foreground;
-    text-style: bold;
+    padding: 0 2;
 }
+
+Screen.-narrow BrandBar {
+    padding: 0 1;
+}
+
+Screen.-roomy BrandBar {
+    padding: 0 4;
+}
+
+BrandBar > Horizontal {
+    height: 1;
+}
+
+.brand-mark {
+    color: $accent;
+    text-style: bold;
+    width: auto;
+}
+
+/* One useful fact, never a decoration: on the main screen, where videos
+   are being saved. It is the first thing to go when space is short. */
+.brand-note {
+    color: $text-muted;
+    width: 1fr;
+    text-align: right;
+    text-overflow: ellipsis;
+}
+
+Screen.-narrow .brand-note {
+    display: none;
+}
+
+/* -- the bar across the bottom -- */
 
 Footer {
     background: $surface;
@@ -37,23 +81,26 @@ FooterKey .footer-key--key {
 
 /* -- main screen -- */
 
-/* Generous gutters. The list is the busiest thing on screen, so the room
-   around it is what stops it reading as a wall. */
 #main-body {
-    padding: 1 4;
+    padding: 1 2;
     height: 1fr;
 }
 
-#tagline {
-    color: $text-muted;
-    margin-bottom: 1;
+Screen.-narrow #main-body {
+    padding: 0 1;
 }
 
-/* The box already carries a tall border, so one clear line below it is
-   enough -- the room is better spent further down, around the list. */
+Screen.-roomy #main-body {
+    padding: 1 4;
+}
+
 #link-row {
     height: auto;
     margin-bottom: 1;
+}
+
+Screen.-short #link-row {
+    margin-bottom: 0;
 }
 
 /* The box you type in is the one thing always worth finding. */
@@ -72,26 +119,18 @@ FooterKey .footer-key--key {
     min-width: 14;
 }
 
-/* A quiet slab of facts, set apart from the list below it. */
-#plan-panel {
-    color: $text-muted;
-    height: auto;
-    padding: 0 2;
-    border-left: outer $secondary;
-    margin-bottom: 2;
+Screen.-narrow #download-btn {
+    margin-left: 1;
+    min-width: 3;
 }
 
 /* -- the list header: how many, and how to arrange them -- */
 
 #list-header {
     height: auto;
-    padding: 0 2;
-    margin-bottom: 1;
     align-vertical: middle;
 }
 
-/* Sat level with the middle of the chooser beside it, rather than riding
-   up against its top border. */
 #queue-note {
     color: $text-muted;
     text-style: italic;
@@ -104,19 +143,26 @@ FooterKey .footer-key--key {
     width: 26;
 }
 
+Screen.-narrow #sort-select {
+    width: 24;
+}
+
 #downloads {
     height: 1fr;
     scrollbar-size-vertical: 1;
-    padding-right: 1;
 }
 
-/* A hairline above the status line, so the list has an edge to end at
-   rather than running straight into the footer. */
+/* A hairline above the status line, so the list ends at an edge rather
+   than running into the footer. */
 #status-row {
     height: auto;
     align-vertical: middle;
-    padding: 1 1 0 1;
+    padding-top: 1;
     border-top: hkey $panel;
+}
+
+Screen.-short #status-row {
+    padding-top: 0;
 }
 
 /* The spinner is only mounted-visible while work is in flight. */
@@ -132,6 +178,18 @@ FooterKey .footer-key--key {
     width: 1fr;
 }
 
+/* How the download is being run. Worth knowing, worth nothing more. */
+#plan-note {
+    color: $text-muted;
+    height: auto;
+    width: auto;
+    margin-right: 2;
+}
+
+Screen.-narrow #plan-note {
+    display: none;
+}
+
 #stop-btn {
     min-width: 8;
     height: 1;
@@ -141,7 +199,8 @@ FooterKey .footer-key--key {
     margin-right: 1;
 }
 
-#stop-btn:hover {
+#stop-btn:hover,
+#stop-btn:focus {
     background: $error;
 }
 
@@ -153,21 +212,28 @@ FooterKey .footer-key--key {
     color: $text-muted;
 }
 
-#clear-btn:hover {
+#clear-btn:hover,
+#clear-btn:focus {
     background: $boost;
     color: $foreground;
 }
 
 /* -- a download in the list -- */
 
-/* Air above the title and a clear gap below the row: three lines of text
-   packed edge to edge is what made a long list hard to read. */
 DownloadRow {
     height: auto;
     margin-bottom: 1;
-    padding: 1 2 0 2;
+    padding: 0 2;
     background: $surface;
     border-left: outer $panel;
+}
+
+Screen.-narrow DownloadRow {
+    padding: 0 1;
+}
+
+Screen.-roomy DownloadRow {
+    padding: 1 2 0 2;
 }
 
 /* The inner containers must size to their contents. Left to their default
@@ -218,10 +284,76 @@ DownloadRow .row-remove {
     margin-left: 1;
 }
 
-DownloadRow .row-remove:hover {
+DownloadRow .row-remove:hover,
+DownloadRow .row-remove:focus {
     background: $error;
     color: $foreground;
 }
+
+/* -- being asked which quality, in the row itself -- */
+
+/* A row with a question in it is the only thing on screen wearing the
+   brand colour on its edge, so it is found without being announced. */
+DownloadRow.-choosing {
+    border-left: outer $accent;
+}
+
+DownloadRow.-choosing .row-detail {
+    color: $accent;
+}
+
+/* The bar means nothing until there is something to measure. */
+DownloadRow.-choosing ProgressBar {
+    display: none;
+}
+
+/* The chips sit on their own line, spaced like everything else: a clear
+   line above them only where there is room for one. */
+DownloadRow .row-choices {
+    height: 1;
+    width: 1fr;
+}
+
+Screen.-roomy DownloadRow .row-choices {
+    margin-top: 1;
+}
+
+.quality-chip {
+    height: 1;
+    width: auto;
+    min-width: 6;
+    border: none;
+    padding: 0 2;
+    margin-right: 1;
+    background: $panel;
+    color: $foreground;
+}
+
+Screen.-narrow .quality-chip {
+    padding: 0 1;
+}
+
+.quality-chip:hover {
+    background: $boost;
+}
+
+.quality-chip:focus {
+    background: $accent;
+    color: $background;
+    text-style: bold;
+}
+
+.quality-chip.-skip {
+    color: $text-muted;
+    background: transparent;
+}
+
+.quality-chip.-skip:focus {
+    background: $panel;
+    color: $foreground;
+}
+
+/* -- how a row ends -- */
 
 DownloadRow.-done {
     border-left: outer $success;
@@ -257,16 +389,36 @@ DownloadRow.-just-finished {
 
 #settings-body,
 #history-body {
-    padding: 0 4;
+    padding: 0 2;
     height: 1fr;
+}
+
+Screen.-narrow #settings-body,
+Screen.-narrow #history-body {
+    padding: 0 1;
+}
+
+Screen.-roomy #settings-body,
+Screen.-roomy #history-body {
+    padding: 0 4;
 }
 
 #settings-title,
 #history-title {
     text-style: bold;
     color: $accent;
-    padding: 1 4 1 4;
+    padding: 1 2;
     height: auto;
+}
+
+Screen.-narrow #settings-title,
+Screen.-narrow #history-title {
+    padding: 0 1;
+}
+
+Screen.-roomy #settings-title,
+Screen.-roomy #history-title {
+    padding: 1 4;
 }
 
 /* -- settings -- */
@@ -274,6 +426,10 @@ DownloadRow.-just-finished {
 .setting {
     height: auto;
     margin-bottom: 1;
+}
+
+Screen.-short .setting {
+    margin-bottom: 0;
 }
 
 .setting Label {
@@ -312,8 +468,16 @@ Input.-invalid {
 
 #settings-actions {
     height: auto;
-    padding: 1 4 1 4;
+    padding: 1 2;
     border-top: hkey $panel;
+}
+
+Screen.-narrow #settings-actions {
+    padding: 0 1;
+}
+
+Screen.-roomy #settings-actions {
+    padding: 1 4;
 }
 
 #settings-actions Button {
@@ -323,92 +487,7 @@ Input.-invalid {
 #settings-message {
     color: $warning;
     height: auto;
-    padding: 0 4;
-}
-
-/* -- choosing a quality -- */
-
-QualityScreen {
-    align: center middle;
-    background: $background 70%;
-}
-
-#quality-box {
-    width: 60;
-    max-width: 90%;
-    height: auto;
-    max-height: 90%;
-    padding: 1 3;
-    background: $surface;
-    border: thick $accent;
-}
-
-#quality-heading {
-    text-style: bold;
-    color: $accent;
-    margin-bottom: 1;
-}
-
-#quality-title {
-    color: $text-muted;
-    text-overflow: ellipsis;
-}
-
-/* How much more there is to get through, so a pasted list does not feel
-   like an unknown number of questions. */
-#quality-count {
-    color: $text-muted;
-    text-style: italic;
-}
-
-/* Spaced from above rather than below, so the gap is the same whether or
-   not the count is showing. */
-#quality-options {
-    height: auto;
-    max-height: 14;
-    margin: 1 0;
-}
-
-#quality-rest {
-    height: auto;
-    align-vertical: middle;
-    margin-bottom: 1;
-}
-
-#quality-rest Label {
-    margin-left: 1;
-    color: $text-muted;
-    height: 3;
-    content-align: left middle;
-}
-
-/* One line each, so the whole question -- every quality, the offer to
-   answer for the rest, and the way out -- fits without scrolling. Bordered
-   buttons took four lines apiece and pushed the controls off screen. */
-.quality-option {
-    width: 100%;
-    height: 1;
-    border: none;
     padding: 0 2;
-    margin-bottom: 1;
-    background: $panel;
-    color: $foreground;
-    text-align: left;
-    content-align: left middle;
-}
-
-.quality-option:hover {
-    background: $boost;
-}
-
-.quality-option:focus {
-    background: $accent;
-    color: $background;
-    text-style: bold;
-}
-
-#quality-actions {
-    height: auto;
 }
 
 /* -- history -- */
@@ -426,10 +505,10 @@ QualityScreen {
 .empty-note {
     color: $text-muted;
     text-style: italic;
-    padding: 1 4;
+    padding: 1 2;
     height: auto;
 }
 
 #history-back {
-    margin: 1 4 1 4;
+    margin: 1 2;
 }

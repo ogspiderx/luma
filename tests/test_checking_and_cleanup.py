@@ -17,15 +17,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from luma.app import LumaApp                                     # noqa: E402
 from luma.engine import download as dl                           # noqa: E402
 from luma.screens import main as main_mod                        # noqa: E402
-from luma.screens.quality import QualityScreen                   # noqa: E402
+from luma.widgets.download_row import DownloadRow, QualityChip  # noqa: E402
 
 _failures = []
 
 FAKE_TOOLS = {"yt-dlp": "yt-dlp", "aria2c": "aria2c", "ffmpeg": "ffmpeg"}
 
 TWO_CHOICES = [
-    {"height": 720, "label": "720p", "note": "about 105.0 MB"},
-    {"height": 480, "label": "480p", "note": "about 55.0 MB"},
+    {"height": 720, "label": "720p", "note": "about 105.0 MB",
+     "filesize": 105 * 1024 ** 2},
+    {"height": 480, "label": "480p", "note": "about 55.0 MB",
+     "filesize": 55 * 1024 ** 2},
 ]
 
 
@@ -76,9 +78,17 @@ class patched:
 async def prepared_app(td):
     app = LumaApp(config_path=os.path.join(td, "config.json"),
                   auto_prepare=False)
-    app.config["ask_quality"] = True
     app.tools = FAKE_TOOLS
     return app
+
+
+def configure(app, **values):
+    """Change settings on a running app.
+
+    Must be done after it has started: the app loads its config on mount,
+    so anything set beforehand is overwritten.
+    """
+    app.config.update(values)
 
 
 # --------------------------------------------------------------------------- #
@@ -134,6 +144,33 @@ async def test_more_can_be_added_while_checking():
                 await settled(screen, pilot)
 
 
+async def test_the_setting_turns_checking_on():
+    print("\n[the setting decides whether links are checked at all]")
+    with tempfile.TemporaryDirectory() as td:
+        app = await prepared_app(td)
+        async with app.run_test() as pilot:
+            screen = app.screen
+            screen._queue_worker = lambda: None
+            box = screen.query_one("#url-input")
+
+            with patched(fake_lookup(choices=TWO_CHOICES)):
+                box.value = link(1)
+                screen._start()
+                await pilot.pause()
+                check("with the setting off, the link is queued as it is",
+                      len(screen._queue) == 1 and not screen._checking,
+                      str(screen._queue))
+
+                configure(app, ask_quality=True)
+                box.value = link(2)
+                screen._start()
+                check("with it on, the link is checked first",
+                      len(screen._checking) == 1, str(screen._checking))
+                await settled(screen, pilot)
+                check("and ends up being asked about",
+                      len(screen._awaiting) == 1, str(screen._awaiting))
+
+
 # --------------------------------------------------------------------------- #
 #  they are looked up side by side                                            #
 # --------------------------------------------------------------------------- #
@@ -170,6 +207,10 @@ async def test_lookups_run_side_by_side():
 #  being asked, without waiting for the rest                                  #
 # --------------------------------------------------------------------------- #
 
+def chips_of(row):
+    return list(row.query(QualityChip))
+
+
 async def test_choosing_starts_it_without_waiting_for_the_rest():
     print("\n[answering one starts it, the rest carry on]")
     with tempfile.TemporaryDirectory() as td:
@@ -183,12 +224,18 @@ async def test_choosing_starts_it_without_waiting_for_the_rest():
                 screen._begin_checks([link(1), link(2), link(3)])
                 await settled(screen, pilot)
 
-                check("a chooser is up", isinstance(app.screen, QualityScreen))
-                check("the others wait their turn",
-                      len(screen._pending_asks) == 2,
-                      str(len(screen._pending_asks)))
+                check("nothing took over the whole screen",
+                      type(app.screen).__name__ == "MainScreen",
+                      type(app.screen).__name__)
+                check("every row is asking for itself",
+                      len(screen._awaiting) == 3, str(screen._awaiting))
+                check("all three questions are visible at once",
+                      all(row.choosing for row in screen._rows.values()))
+                check("the cursor is already on the first one",
+                      isinstance(app.focused, QualityChip), str(app.focused))
 
-                await pilot.click("#quality-720")
+                first = screen._rows[sorted(screen._rows)[0]]
+                await pilot.click(chips_of(first)[0])
                 await pilot.pause()
 
                 check("the answered link is queued at that quality",
@@ -196,17 +243,10 @@ async def test_choosing_starts_it_without_waiting_for_the_rest():
                       and screen._queue[0][2] == "720", str(screen._queue))
                 check("downloading begins before the rest are answered",
                       started, "the queue worker was not started")
-                check("and the next question is already up",
-                      isinstance(app.screen, QualityScreen))
-                check("with one still behind it",
-                      len(screen._pending_asks) == 1,
-                      str(len(screen._pending_asks)))
-
-                # Clear the remaining questions so the app can shut down.
-                await pilot.click("#quality-cancel")
-                await pilot.pause()
-                await pilot.click("#quality-cancel")
-                await pilot.pause()
+                check("two questions are still open",
+                      len(screen._awaiting) == 2, str(screen._awaiting))
+                check("and the cursor moved to the next one",
+                      isinstance(app.focused, QualityChip), str(app.focused))
 
 
 async def test_one_answer_can_cover_the_rest():
@@ -221,27 +261,48 @@ async def test_one_answer_can_cover_the_rest():
                 screen._begin_checks([link(i) for i in range(5)])
                 await settled(screen, pilot)
 
-                chooser = app.screen
-                check("it offers to answer for the rest",
-                      bool(chooser.query("#quality-apply-all")))
-                chooser.query_one("#quality-apply-all").value = True
+                check("'same for all' is offered while several are asking",
+                      screen.check_action("same_for_all", ()) is True)
+
+                first = screen._rows[sorted(screen._rows, key=int)[0]]
+                await pilot.click(chips_of(first)[1])       # 480p
                 await pilot.pause()
-                await pilot.click("#quality-480")
+                check("one is answered", len(screen._awaiting) == 4,
+                      str(screen._awaiting))
+
+                await pilot.press("ctrl+a")
                 await pilot.pause()
 
-                check("no further questions are asked",
-                      not isinstance(app.screen, QualityScreen),
-                      type(app.screen).__name__)
+                check("nothing is left asking", screen._awaiting == set(),
+                      str(screen._awaiting))
                 check("all five are queued", len(screen._queue) == 5,
                       str(len(screen._queue)))
-                check("every one at the chosen quality",
+                check("every one at the quality that was picked",
                       all(entry[2] == "480" for entry in screen._queue),
                       str(screen._queue))
-
-                # A later paste is asked about afresh rather than silently
-                # inheriting the earlier answer.
+                check("and it is no longer offered",
+                      screen.check_action("same_for_all", ()) is False)
                 check("the answer does not carry over to a later paste",
-                      screen._ask_all is None, str(screen._ask_all))
+                      screen._last_choice is None, str(screen._last_choice))
+
+
+async def test_same_for_all_falls_back_to_the_setting():
+    print("\n[same for all, without picking one first]")
+    with tempfile.TemporaryDirectory() as td:
+        app = await prepared_app(td)
+        async with app.run_test(size=(90, 30)) as pilot:
+            screen = app.screen
+            screen._queue_worker = lambda: None
+            configure(app, quality="360")
+            with patched(fake_lookup(choices=TWO_CHOICES)):
+                screen._begin_checks([link(1), link(2)])
+                await settled(screen, pilot)
+
+                await pilot.press("ctrl+a")
+                await pilot.pause()
+                check("the usual setting is used when nothing was picked",
+                      all(entry[2] == "360" for entry in screen._queue),
+                      str(screen._queue))
 
 
 async def test_skipping_takes_the_row_away():
@@ -254,14 +315,36 @@ async def test_skipping_takes_the_row_away():
             with patched(fake_lookup(choices=TWO_CHOICES)):
                 screen._begin_checks([link(1)])
                 await settled(screen, pilot)
-                await pilot.click("#quality-cancel")
+                row = list(screen._rows.values())[0]
+                await pilot.click(chips_of(row)[-1])        # Skip
                 await pilot.pause()
                 check("the row goes with it", screen._rows == {},
                       str(screen._rows))
                 check("and nothing is queued", screen._queue == [],
                       str(screen._queue))
-                check("Luma is ready again", not screen._checking
-                      and not screen._pending_asks and not screen._asking)
+                check("Luma is ready again",
+                      not screen._checking and not screen._awaiting)
+
+
+async def test_a_question_never_steals_the_keyboard():
+    print("\n[a question arriving mid-typing]")
+    with tempfile.TemporaryDirectory() as td:
+        app = await prepared_app(td)
+        async with app.run_test(size=(90, 30)) as pilot:
+            screen = app.screen
+            screen._queue_worker = lambda: None
+            box = screen.query_one("#url-input")
+            with patched(fake_lookup(delay=0.25, choices=TWO_CHOICES)):
+                screen._begin_checks([link(1)])
+                await pilot.pause()
+                box.focus()
+                box.value = "https://youtu.be/half-typed"
+                await pilot.pause()
+                await settled(screen, pilot)
+                check("the cursor stays in the box being typed in",
+                      app.focused is box, str(app.focused))
+                check("but the question is there to answer",
+                      len(screen._awaiting) == 1, str(screen._awaiting))
 
 
 async def test_a_row_removed_mid_check_is_forgotten():
@@ -286,13 +369,9 @@ async def test_a_row_removed_mid_check_is_forgotten():
 
                 await settled(screen, pilot)
                 check("its answer is discarded when it arrives",
-                      all(e[0] != gone.tag for e in screen._pending_asks)
+                      gone.tag not in screen._awaiting
                       and all(e[0] != gone.tag for e in screen._queue),
-                      str(screen._pending_asks))
-                # Only the surviving link is asked about.
-                if isinstance(app.screen, QualityScreen):
-                    await pilot.click("#quality-cancel")
-                    await pilot.pause()
+                      str(screen._awaiting))
 
 
 # --------------------------------------------------------------------------- #
@@ -371,10 +450,13 @@ async def run_all():
     print("=" * 62)
     await test_rows_appear_straight_away()
     await test_more_can_be_added_while_checking()
+    await test_the_setting_turns_checking_on()
     await test_lookups_run_side_by_side()
     await test_choosing_starts_it_without_waiting_for_the_rest()
     await test_one_answer_can_cover_the_rest()
+    await test_same_for_all_falls_back_to_the_setting()
     await test_skipping_takes_the_row_away()
+    await test_a_question_never_steals_the_keyboard()
     await test_a_row_removed_mid_check_is_forgotten()
     test_leftovers_are_cleared()
     test_leftovers_can_be_found_from_a_link()
