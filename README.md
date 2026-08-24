@@ -69,8 +69,14 @@ default.
 
 **Ask me which quality, for every link** — with this on, Luma looks up what
 each link is actually available in and asks you to pick, showing roughly how
-big each one would be. If a link cannot be read it quietly uses your usual
-setting instead.
+big each one would be.
+
+Your links appear in the list the moment you paste them, and Luma checks
+several at a time in the background — so you can keep pasting, and remove
+anything you didn't mean to add, while it works. As soon as you answer the
+first question that video starts downloading; you don't wait for the rest.
+If you paste a lot at once, tick **Use my answer for the rest as well** and
+Luma stops asking. A link it cannot read quietly uses your usual setting.
 
 **Videos at once** — how many download simultaneously. More is usually faster
 on a quick connection, but not always.
@@ -126,8 +132,15 @@ Private, removed and region-blocked videos can't be downloaded by anything.
 Settings and make sure *Connections per video* is 16. Trying 2 or 3 *Videos at
 once* can also help on a fast connection.
 
-**It stopped partway.** Luma retries a few times on its own. Paste the link
-again and it picks up where it left off rather than starting over.
+**It stopped partway.** Luma retries a few times on its own. If it still
+doesn't work, paste the link again and it picks up where it left off rather
+than starting over. Stopping a download yourself is treated as final, so the
+half-finished pieces are cleared away and that one begins afresh next time.
+
+**There are odd `.part` and `.aria2` files in my downloads folder.** There
+shouldn't be — Luma clears them away as each video finishes or is stopped.
+The only ones that stay are for a download that failed and could still be
+resumed. Anything left over from an older version is safe to delete.
 
 **Luma won't start, or closes immediately.** Look in the `logs` folder — the
 newest entry says what happened. Deleting `config.json` resets Luma to its

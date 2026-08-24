@@ -46,18 +46,23 @@ def size_note(bytes_estimate):
     return ""
 
 
-def available_qualities(ytdlp, url, callbacks=None, timeout=90):
+def available_qualities(ytdlp, url, callbacks=None, timeout=45):
     """Ask the site what this link can be downloaded in.
 
     Returns (title, choices) where each choice is
     {height, label, note, filesize} sorted best first. On any failure the
     choices come back empty and the caller should fall back to its setting
     rather than treating it as an error.
+
+    Several of these run side by side, so a link that is slow to answer is
+    told to give up quickly rather than holding up the ones behind it.
     """
     callbacks = callbacks or EngineCallbacks()
     callbacks.on_status("Checking what qualities are available...")
 
-    cmd = [ytdlp, "--no-playlist", "--no-warnings", "-J", url]
+    cmd = [ytdlp, "--no-playlist", "--no-warnings",
+           "--socket-timeout", "15", "--extractor-retries", "1",
+           "-J", url]
     try:
         out = subprocess.run(cmd, capture_output=True, text=True,
                              timeout=timeout)

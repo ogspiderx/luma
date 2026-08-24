@@ -2,6 +2,7 @@
 
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from textual import work
 from textual.app import ComposeResult
@@ -30,6 +31,10 @@ from ..history import record_results, recent_downloads
 from ..locations import DEFAULT_DOWNLOAD_DIR
 from ..widgets.download_row import DownloadRow
 from .quality import QualityScreen
+
+#: How many links to look up at the same time. Enough that a pasted list is
+#: dealt with quickly, few enough that it does not swamp a modest connection.
+PROBE_AT_ONCE = 4
 
 #: How the list can be arranged, in plain words.
 SORT_OPTIONS = [
@@ -62,6 +67,11 @@ class MainScreen(Screen):
         self._speed_timer = None
         self._sequence = 0
         self._sort_mode = "added"
+        # Links whose qualities are known, waiting to be asked about.
+        self._pending_asks = []          # (tag, url, title, choices)
+        self._asking = False             # a chooser is on screen right now
+        self._ask_all = None             # "use this for the rest" answer
+        self._checking = set()           # tags whose lookup is still running
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -195,7 +205,13 @@ class MainScreen(Screen):
             still_waiting = [e for e in self._queue if e[0] == tag]
             self._queue[:] = [e for e in self._queue if e[0] != tag]
 
-        if not row.finished and not still_waiting:
+        # It may instead be waiting to be asked about, or still being looked
+        # up -- in which case there is nothing running to stop.
+        being_asked = any(entry[0] == tag for entry in self._pending_asks)
+        self._pending_asks = [e for e in self._pending_asks if e[0] != tag]
+        not_started = bool(still_waiting) or being_asked or tag in self._checking
+
+        if not row.finished and not not_started:
             # It is in flight: ask this one to stop without touching the rest.
             dl.cancel_tag(tag)
             self.app.notify("Stopping that download.")
@@ -330,7 +346,7 @@ class MainScreen(Screen):
         config = getattr(self.app, "config", None) or {}
         if config.get("ask_quality", False):
             # Find out what each link is available in and let the person say.
-            self._ask_worker(urls)
+            self._begin_checks(urls)
             return
 
         added = self._enqueue(urls)
@@ -341,58 +357,167 @@ class MainScreen(Screen):
             )
         self._ensure_worker()
 
-    @work(group="ask")
-    async def _ask_worker(self, urls) -> None:
-        """Ask which quality to use, one link at a time, then queue them.
+    # -- being asked which quality ---------------------------------------
+    #
+    #  Looking a link up takes a few seconds, so nothing here waits on it.
+    #  The rows go up straight away, the lookups run several at a time, and
+    #  each answer is acted on as it lands -- so the first video starts
+    #  downloading while the rest are still being asked about.
 
-        Runs as an ordinary worker rather than a thread one so the chooser can
-        be put on screen and waited for; only the lookup itself is handed to a
-        thread, since it talks to the network.
-        """
-        import asyncio
+    def _begin_checks(self, urls):
+        """List the links at once, then find out what they are available in."""
+        entries = []
+        for url in urls:
+            self._sequence += 1
+            tag = str(self._sequence)
+            self._add_row(tag, url)
+            self._rows[tag].set_detail("Checking what qualities it comes in...")
+            entries.append((tag, url))
+            self._checking.add(tag)
+        self._after_list_change()
+        self._set_busy(True)
+        self._announce_checking()
+        self._probe_worker(entries)
+        return len(entries)
 
-        tools = getattr(self.app, "tools", None)
+    def _announce_checking(self):
+        outstanding = len(self._checking)
+        if outstanding and not self._download_active:
+            self._set_status(
+                f"Checking {outstanding} "
+                f"link{'s' if outstanding != 1 else ''}..."
+            )
+
+    @work(thread=True, group="probe")
+    def _probe_worker(self, entries) -> None:
+        """Look several links up side by side, reporting each as it answers."""
+        app = self.app
+
+        def ui(fn, *args):
+            try:
+                app.call_from_thread(fn, *args)
+            except Exception:
+                pass
+
+        tools = getattr(app, "tools", None)
         if not tools:
             try:
-                tools = await asyncio.to_thread(ensure_tools)
-                self.app.tools = tools
+                tools = ensure_tools()
+                app.tools = tools
             except Exception:                          # noqa: BLE001
-                self.app.notify("Could not get things ready.",
-                                severity="error")
+                ui(self._probe_failed, entries)
                 return
 
-        queued = 0
-        for url in urls:
-            self._set_busy(True)
-            self._set_status("Checking what qualities are available...")
+        def look_up(entry):
             try:
-                title, choices = await asyncio.to_thread(
-                    available_qualities, tools["yt-dlp"], url)
+                return entry, available_qualities(tools["yt-dlp"], entry[1])
             except Exception:                          # noqa: BLE001
-                title, choices = "", []
+                return entry, ("", [])
+
+        workers = max(1, min(PROBE_AT_ONCE, len(entries)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(look_up, entry) for entry in entries]
+            for future in as_completed(futures):
+                try:
+                    (tag, url), (title, choices) = future.result()
+                except Exception:                      # noqa: BLE001
+                    continue
+                ui(self._probe_done, tag, url, title, choices)
+
+    def _probe_failed(self, entries):
+        """The tools could not be readied, so none of these can go ahead."""
+        for tag, _url in entries:
+            self._checking.discard(tag)
+            row = self._rows.get(tag)
+            if row is not None and not row.finished:
+                row.finish(False, "Could not get things ready.")
+        self._settle_checks()
+
+    def _probe_done(self, tag, url, title, choices):
+        """One lookup came back: ask about it, or queue it as it stands."""
+        self._checking.discard(tag)
+        row = self._rows.get(tag)
+        if row is None:
+            self._settle_checks()       # taken out of the list while we looked
+            return
+        if title:
+            row.set_title(title)
+
+        if not choices:
+            # Nothing to choose between: fall back to the setting rather than
+            # asking a question with no answers.
+            row.set_detail("Could not read the qualities - "
+                           "using your usual setting.")
+            self._queue_checked(tag, url, None)
+        elif self._ask_all:
+            self._queue_checked(tag, url, self._ask_all)
+        else:
+            self._pending_asks.append((tag, url, title, choices))
+            row.set_detail("Waiting for you to choose a quality")
+            self._pump_asks()
+        self._settle_checks()
+
+    def _pump_asks(self):
+        """Put the next chooser on screen, one at a time."""
+        while not self._asking and self._pending_asks:
+            tag, url, title, choices = self._pending_asks.pop(0)
+            if tag not in self._rows:
+                continue                          # removed while it waited
+            self._asking = True
+            remaining = len(self._pending_asks) + len(self._checking)
+            self.app.push_screen(
+                QualityScreen(title or url, choices, remaining=remaining),
+                lambda result, tag=tag, url=url: self._quality_chosen(
+                    tag, url, result),
+            )
+            return
+
+    def _quality_chosen(self, tag, url, result):
+        """What came back from the chooser."""
+        self._asking = False
+        if result is None:
+            row = self._rows.pop(tag, None)
+            if row is not None:
+                row.remove()
+                self._after_list_change()
+            self.app.notify("Skipped that link.")
+        else:
+            height = str(result.get("height"))
+            if result.get("apply_all"):
+                self._ask_all = height
+                self._answer_the_rest(height)
+            self._queue_checked(tag, url, height)
+        self._pump_asks()
+        self._settle_checks()
+
+    def _answer_the_rest(self, height):
+        """Use one answer for every link still waiting to be asked about."""
+        pending, self._pending_asks = self._pending_asks, []
+        for tag, url, _title, _choices in pending:
+            if tag in self._rows:
+                self._queue_checked(tag, url, height)
+
+    def _queue_checked(self, tag, url, quality):
+        """Put an already-listed link on the queue, now its quality is known.
+
+        Downloading begins here rather than once every link has been dealt
+        with, so the first video is already arriving while the rest are
+        still being asked about.
+        """
+        with self._queue_lock:
+            self._queue.append((tag, url, quality))
+        self._after_list_change()
+        self._ensure_worker()
+
+    def _settle_checks(self):
+        """Tidy up once every lookup and every question has been dealt with."""
+        if self._checking or self._pending_asks or self._asking:
+            self._announce_checking()
+            return
+        self._ask_all = None            # a later paste is asked about afresh
+        if not self._download_active:
             self._set_busy(False)
-
-            if not choices:
-                # Nothing to choose between: fall back to the setting rather
-                # than blocking on a question with no answers.
-                self.app.notify(
-                    "Could not read the qualities for that link - using your "
-                    "usual setting.", severity="warning")
-                self._enqueue([url])
-                queued += 1
-                continue
-
-            chosen = await self.app.push_screen_wait(
-                QualityScreen(title or url, choices))
-            if chosen is None:
-                self.app.notify("Skipped that link.")
-                continue
-            self._enqueue([url], quality=str(chosen))
-            queued += 1
-
-        self._set_status("Ready." if not queued else "Starting...")
-        if queued:
-            self._ensure_worker()
+            self._set_status("Ready.")
 
     def _enqueue(self, urls, quality=None):
         """Put links in the list as waiting, and on the queue.

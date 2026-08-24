@@ -98,6 +98,54 @@ def terminate_all(timeout=5):
 
 
 # --------------------------------------------------------------------------- #
+#  Clearing up half-finished files                                             #
+# --------------------------------------------------------------------------- #
+
+#: What the download tools leave behind while a file is still arriving.
+_LEFTOVERS = (".part", ".aria2", ".ytdl", ".temp")
+
+
+def _video_id(text):
+    """The "[abcdefghijk]" id out of a filename or a link, if there is one."""
+    match = re.search(r"\[([A-Za-z0-9_-]{11})\]", str(text or ""))
+    if match:
+        return match.group(1)
+    match = re.search(r"(?:v=|youtu\.be/|/shorts/)([A-Za-z0-9_-]{11})",
+                      str(text or ""))
+    return match.group(1) if match else ""
+
+
+def clean_partials(output_dir, marker=None):
+    """Delete the half-finished pieces a download leaves behind.
+
+    `marker` is a video id or a path containing one, so only that video's
+    remnants go. Without it, every leftover in the folder is cleared.
+
+    Only ever call this once a download is finished with, or has been
+    deliberately abandoned: while one is still going, these files are what
+    lets it pick up where it left off.
+    """
+    video_id = _video_id(marker) if marker else ""
+    removed = 0
+    try:
+        names = os.listdir(output_dir)
+    except OSError:
+        return 0
+
+    for name in names:
+        if not (name.endswith(_LEFTOVERS) or ".part-Frag" in name):
+            continue
+        if video_id and video_id not in name:
+            continue
+        try:
+            os.remove(os.path.join(output_dir, name))
+            removed += 1
+        except OSError:
+            pass        # in use, or already gone; not worth complaining about
+    return removed
+
+
+# --------------------------------------------------------------------------- #
 #  Command construction                                                        #
 # --------------------------------------------------------------------------- #
 
@@ -536,14 +584,19 @@ def download_one(tools, url, plan, output_dir, quality, downloader, archive,
     reason, filepath = "", None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         if _cancel_event.is_set() or is_tag_cancelled(tag):
+            clean_partials(output_dir, url)
             callbacks.on_video_done(tag, url, False, "Stopped.", None)
             return (url, False, "Stopped.", None)
 
         rc, reason, filepath = _stream_download(cmd, tag, callbacks)
         if rc == 0:
+            # The finished file is written; the pieces are only clutter now.
+            clean_partials(output_dir, filepath or url)
             callbacks.on_video_done(tag, url, True, "", filepath)
             return (url, True, "", filepath)
-        if rc == 130:                      # cancelled, don't retry
+        if rc == 130:
+            # Deliberately stopped, so this is not going to be resumed.
+            clean_partials(output_dir, filepath or url)
             callbacks.on_video_done(tag, url, False, "Stopped.", filepath)
             return (url, False, "Stopped.", filepath)
 

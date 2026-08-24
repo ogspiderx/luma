@@ -37,8 +37,10 @@ FooterKey .footer-key--key {
 
 /* -- main screen -- */
 
+/* Generous gutters. The list is the busiest thing on screen, so the room
+   around it is what stops it reading as a wall. */
 #main-body {
-    padding: 1 3;
+    padding: 1 4;
     height: 1fr;
 }
 
@@ -47,6 +49,8 @@ FooterKey .footer-key--key {
     margin-bottom: 1;
 }
 
+/* The box already carries a tall border, so one clear line below it is
+   enough -- the room is better spent further down, around the list. */
 #link-row {
     height: auto;
     margin-bottom: 1;
@@ -72,24 +76,28 @@ FooterKey .footer-key--key {
 #plan-panel {
     color: $text-muted;
     height: auto;
-    padding: 0 1;
+    padding: 0 2;
     border-left: outer $secondary;
-    margin-bottom: 1;
+    margin-bottom: 2;
 }
 
 /* -- the list header: how many, and how to arrange them -- */
 
 #list-header {
     height: auto;
-    padding: 0 1;
+    padding: 0 2;
     margin-bottom: 1;
+    align-vertical: middle;
 }
 
+/* Sat level with the middle of the chooser beside it, rather than riding
+   up against its top border. */
 #queue-note {
     color: $text-muted;
     text-style: italic;
     width: 1fr;
-    height: auto;
+    height: 3;
+    content-align: left middle;
 }
 
 #sort-select {
@@ -99,12 +107,16 @@ FooterKey .footer-key--key {
 #downloads {
     height: 1fr;
     scrollbar-size-vertical: 1;
+    padding-right: 1;
 }
 
+/* A hairline above the status line, so the list has an edge to end at
+   rather than running straight into the footer. */
 #status-row {
     height: auto;
     align-vertical: middle;
-    padding-top: 1;
+    padding: 1 1 0 1;
+    border-top: hkey $panel;
 }
 
 /* The spinner is only mounted-visible while work is in flight. */
@@ -148,10 +160,12 @@ FooterKey .footer-key--key {
 
 /* -- a download in the list -- */
 
+/* Air above the title and a clear gap below the row: three lines of text
+   packed edge to edge is what made a long list hard to read. */
 DownloadRow {
     height: auto;
     margin-bottom: 1;
-    padding: 0 1;
+    padding: 1 2 0 2;
     background: $surface;
     border-left: outer $panel;
 }
@@ -243,7 +257,7 @@ DownloadRow.-just-finished {
 
 #settings-body,
 #history-body {
-    padding: 0 3;
+    padding: 0 4;
     height: 1fr;
 }
 
@@ -251,7 +265,7 @@ DownloadRow.-just-finished {
 #history-title {
     text-style: bold;
     color: $accent;
-    padding: 1 3 1 3;
+    padding: 1 4 1 4;
     height: auto;
 }
 
@@ -283,6 +297,8 @@ DownloadRow.-just-finished {
 .setting-switch Label {
     margin-left: 1;
     color: $foreground;
+    height: 3;
+    content-align: left middle;
 }
 
 .field-error {
@@ -296,7 +312,8 @@ Input.-invalid {
 
 #settings-actions {
     height: auto;
-    padding: 0 3 1 3;
+    padding: 1 4 1 4;
+    border-top: hkey $panel;
 }
 
 #settings-actions Button {
@@ -306,7 +323,7 @@ Input.-invalid {
 #settings-message {
     color: $warning;
     height: auto;
-    padding: 0 3;
+    padding: 0 4;
 }
 
 /* -- choosing a quality -- */
@@ -317,11 +334,11 @@ QualityScreen {
 }
 
 #quality-box {
-    width: 56;
+    width: 60;
     max-width: 90%;
     height: auto;
-    max-height: 80%;
-    padding: 1 2;
+    max-height: 90%;
+    padding: 1 3;
     background: $surface;
     border: thick $accent;
 }
@@ -335,18 +352,59 @@ QualityScreen {
 #quality-title {
     color: $text-muted;
     text-overflow: ellipsis;
-    margin-bottom: 1;
 }
 
+/* How much more there is to get through, so a pasted list does not feel
+   like an unknown number of questions. */
+#quality-count {
+    color: $text-muted;
+    text-style: italic;
+}
+
+/* Spaced from above rather than below, so the gap is the same whether or
+   not the count is showing. */
 #quality-options {
     height: auto;
     max-height: 14;
+    margin: 1 0;
+}
+
+#quality-rest {
+    height: auto;
+    align-vertical: middle;
     margin-bottom: 1;
 }
 
+#quality-rest Label {
+    margin-left: 1;
+    color: $text-muted;
+    height: 3;
+    content-align: left middle;
+}
+
+/* One line each, so the whole question -- every quality, the offer to
+   answer for the rest, and the way out -- fits without scrolling. Bordered
+   buttons took four lines apiece and pushed the controls off screen. */
 .quality-option {
     width: 100%;
+    height: 1;
+    border: none;
+    padding: 0 2;
     margin-bottom: 1;
+    background: $panel;
+    color: $foreground;
+    text-align: left;
+    content-align: left middle;
+}
+
+.quality-option:hover {
+    background: $boost;
+}
+
+.quality-option:focus {
+    background: $accent;
+    color: $background;
+    text-style: bold;
 }
 
 #quality-actions {
@@ -368,10 +426,10 @@ QualityScreen {
 .empty-note {
     color: $text-muted;
     text-style: italic;
-    padding: 1 3;
+    padding: 1 4;
     height: auto;
 }
 
 #history-back {
-    margin: 0 3 1 3;
+    margin: 1 4 1 4;
 }

@@ -251,8 +251,52 @@ async def test_the_chooser_offers_and_returns():
 
         await pilot.click("#quality-720")
         await pilot.pause()
+        chosen = result.get("chosen") or {}
         check("choosing one returns its height",
-              result.get("chosen") == "720", str(result))
+              chosen.get("height") == "720", str(result))
+        check("with nothing else asked for, it applies only to this link",
+              chosen.get("apply_all") is False, str(result))
+
+
+async def test_the_chooser_says_how_many_are_left():
+    print("\n[being told how many links are left]")
+    app = LumaApp(auto_prepare=False)
+    async with app.run_test(size=(90, 30)) as pilot:
+        choices = [{"height": 720, "label": "720p", "note": ""},
+                   {"height": 480, "label": "480p", "note": ""}]
+        result = {}
+
+        app.push_screen(QualityScreen("A Test Video", choices, remaining=4),
+                        lambda value: result.update(chosen=value))
+        await pilot.pause()
+        screen = app.screen
+        count = text_of(screen.query_one("#quality-count", Static))
+        check("it says how many more there are", "4 more links" in count, count)
+        check("the offer to answer for the rest is there",
+              bool(screen.query("#quality-apply-all")))
+
+        screen.query_one("#quality-apply-all", Switch).value = True
+        await pilot.pause()
+        await pilot.click("#quality-720")
+        await pilot.pause()
+        chosen = result.get("chosen") or {}
+        check("the answer is marked as standing for the rest",
+              chosen.get("apply_all") is True, str(result))
+        check("and it still carries the height",
+              chosen.get("height") == "720", str(result))
+
+    app = LumaApp(auto_prepare=False)
+    async with app.run_test(size=(90, 30)) as pilot:
+        app.push_screen(
+            QualityScreen("A Test Video",
+                          [{"height": 480, "label": "480p", "note": ""}]),
+            lambda value: None,
+        )
+        await pilot.pause()
+        screen = app.screen
+        check("a single link is not asked about the rest",
+              not screen.query("#quality-apply-all"))
+        check("nor told how many are left", not screen.query("#quality-count"))
 
 
 async def test_the_chooser_can_be_declined():
@@ -323,6 +367,7 @@ async def run_all():
     test_the_setting_exists()
     await test_the_switch_is_wired()
     await test_the_chooser_offers_and_returns()
+    await test_the_chooser_says_how_many_are_left()
     await test_the_chooser_can_be_declined()
     await test_a_chosen_quality_is_carried_through()
 
