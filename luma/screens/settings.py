@@ -16,14 +16,16 @@ from ..engine.errors import UnsafePathError
 from ..engine.paths import validate_output_dir
 
 #: Themes offered, with names that mean something to a normal person.
+#: Luma's own two come first; the rest are Textual's, for anyone who
+#: prefers a palette they already know.
 THEME_CHOICES = [
-    ("Dark", "textual-dark"),
-    ("Light", "textual-light"),
+    ("Luma Night - ink and gold", "luma-night"),
+    ("Luma Day - paper and gold", "luma-day"),
     ("Midnight", "tokyo-night"),
     ("Forest", "gruvbox"),
     ("Ocean", "nord"),
-    ("Sunset", "catppuccin-mocha"),
-    ("Paper", "solarized-light"),
+    ("Plain dark", "textual-dark"),
+    ("Plain light", "textual-light"),
 ]
 
 QUALITY_LABELS = [
@@ -74,6 +76,10 @@ class SettingsScreen(Screen):
                 yield Select(QUALITY_LABELS, id="set-quality",
                              allow_blank=False)
 
+            with Horizontal(classes="setting setting-switch"):
+                yield Switch(id="set-ask-quality")
+                yield Label("Ask me which quality, for every link")
+
             with Vertical(classes="setting"):
                 yield Label(f"Videos at once (1-{MAX_PARALLEL_LIMIT})")
                 yield Input(id="set-parallel", type="integer")
@@ -112,6 +118,9 @@ class SettingsScreen(Screen):
         self.query_one("#set-parallel", Input).value = str(cfg["max_parallel"])
         self.query_one("#set-conns", Input).value = str(cfg["conns_per_file"])
         self.query_one("#set-archive", Switch).value = bool(cfg["archive"])
+        self.query_one("#set-ask-quality", Switch).value = bool(
+            cfg.get("ask_quality", False)
+        )
 
         self._set_select("#set-folders", cfg["folders"], FOLDER_CHOICES[0])
         self._set_select("#set-quality", cfg["quality"], "480")
@@ -178,6 +187,7 @@ class SettingsScreen(Screen):
             "conns_per_file": conns,
             "theme": self.query_one("#set-theme", Select).value,
             "archive": self.query_one("#set-archive", Switch).value,
+            "ask_quality": self.query_one("#set-ask-quality", Switch).value,
         })
         return config, errors
 

@@ -19,6 +19,7 @@ from .engine.errors import UnsafePathError
 from .engine.paths import ensure_dir, safe_join, validate_output_dir
 from .locations import CONFIG_PATH, DEFAULT_DOWNLOAD_DIR
 from .storage import atomic_write_json, safe_read_json
+from .theme import DEFAULT_THEME
 
 #: How finished files are grouped inside the download folder.
 FOLDER_CHOICES = ("none", "date", "playlist")
@@ -30,9 +31,10 @@ DEFAULTS = {
     "output_dir": DEFAULT_DOWNLOAD_DIR,
     "folders": "none",
     "quality": DEFAULT_QUALITY,
+    "ask_quality": False,
     "max_parallel": DEFAULT_MAX_PARALLEL,
     "conns_per_file": ARIA2_MAX_PER_FILE,
-    "theme": "textual-dark",
+    "theme": DEFAULT_THEME,
     "archive": True,
     "skip_speedtest": False,
 }
@@ -88,6 +90,7 @@ def normalize(raw):
     cfg["skip_speedtest"] = bool(
         raw.get("skip_speedtest", DEFAULTS["skip_speedtest"])
     )
+    cfg["ask_quality"] = bool(raw.get("ask_quality", DEFAULTS["ask_quality"]))
     return cfg
 
 

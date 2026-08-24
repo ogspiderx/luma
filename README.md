@@ -14,6 +14,10 @@ rather than trickling one file at a time.
 2. Paste a YouTube link into the box.
 3. Press **Download**.
 
+Luma opens maximised in its own window. **F11** makes it full screen. If you
+would rather have no tabs or title bar at all, start it with `run.bat --bare` —
+though note that leaves nothing to grab if you want to move the window.
+
 That is the whole thing. Your videos appear in the **`downloads`** folder next
 to Luma.
 
@@ -63,6 +67,11 @@ for each playlist.
 means bigger files and longer downloads. 480p is a good balance and is the
 default.
 
+**Ask me which quality, for every link** — with this on, Luma looks up what
+each link is actually available in and asks you to pick, showing roughly how
+big each one would be. If a link cannot be read it quietly uses your usual
+setting instead.
+
 **Videos at once** — how many download simultaneously. More is usually faster
 on a quick connection, but not always.
 
@@ -70,7 +79,9 @@ on a quick connection, but not always.
 the main reason Luma is fast. 16 is the maximum and the default; lower it only
 if your connection struggles.
 
-**Appearance** — light, dark and a few others.
+**Appearance** — Luma Night (ink and gold) is the default; Luma Day is the
+same idea for a bright room. A few other palettes are there if you prefer one
+you already know.
 
 **Skip videos I've already downloaded** — leave this on and Luma won't fetch
 the same video twice.

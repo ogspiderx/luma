@@ -8,6 +8,7 @@ from .config import load_config, save_config
 from .screens.history import HistoryScreen
 from .screens.main import MainScreen
 from .screens.settings import SettingsScreen
+from .theme import register as register_themes
 
 
 class LumaApp(App):
@@ -36,6 +37,7 @@ class LumaApp(App):
         self.config = {}
 
     def on_mount(self) -> None:
+        register_themes(self)
         self.config = (
             load_config(self._config_path) if self._config_path
             else load_config()

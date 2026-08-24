@@ -17,6 +17,7 @@ from ..engine import download as dl
 from ..engine.callbacks import EngineCallbacks
 from ..engine.constants import DEFAULT_MAX_PARALLEL, DEFAULT_QUALITY, human
 from ..engine.errors import LumaError
+from ..engine.formats import available_qualities
 from ..engine.inputs import (
     expand_playlists,
     gather_inputs,
@@ -28,6 +29,7 @@ from ..engine.tools import ensure_tools
 from ..history import record_results, recent_downloads
 from ..locations import DEFAULT_DOWNLOAD_DIR
 from ..widgets.download_row import DownloadRow
+from .quality import QualityScreen
 
 #: How the list can be arranged, in plain words.
 SORT_OPTIONS = [
@@ -143,7 +145,7 @@ class MainScreen(Screen):
             waiting = list(self._queue)
             self._queue.clear()
         dl.request_cancel()
-        for tag, _ in waiting:
+        for tag, _, _q in waiting:
             row = self._rows.get(tag)
             if row is not None and not row.finished:
                 row.finish(False, "Stopped before it started.")
@@ -190,8 +192,8 @@ class MainScreen(Screen):
         tag = row.tag
 
         with self._queue_lock:
-            still_waiting = [(t, u) for t, u in self._queue if t == tag]
-            self._queue[:] = [(t, u) for t, u in self._queue if t != tag]
+            still_waiting = [e for e in self._queue if e[0] == tag]
+            self._queue[:] = [e for e in self._queue if e[0] != tag]
 
         if not row.finished and not still_waiting:
             # It is in flight: ask this one to stop without touching the rest.
@@ -325,6 +327,12 @@ class MainScreen(Screen):
             return
 
         box.value = ""
+        config = getattr(self.app, "config", None) or {}
+        if config.get("ask_quality", False):
+            # Find out what each link is available in and let the person say.
+            self._ask_worker(urls)
+            return
+
         added = self._enqueue(urls)
         if self._download_active:
             self.app.notify(
@@ -333,14 +341,71 @@ class MainScreen(Screen):
             )
         self._ensure_worker()
 
-    def _enqueue(self, urls):
-        """Put links in the list as waiting, and on the queue."""
+    @work(group="ask")
+    async def _ask_worker(self, urls) -> None:
+        """Ask which quality to use, one link at a time, then queue them.
+
+        Runs as an ordinary worker rather than a thread one so the chooser can
+        be put on screen and waited for; only the lookup itself is handed to a
+        thread, since it talks to the network.
+        """
+        import asyncio
+
+        tools = getattr(self.app, "tools", None)
+        if not tools:
+            try:
+                tools = await asyncio.to_thread(ensure_tools)
+                self.app.tools = tools
+            except Exception:                          # noqa: BLE001
+                self.app.notify("Could not get things ready.",
+                                severity="error")
+                return
+
+        queued = 0
+        for url in urls:
+            self._set_busy(True)
+            self._set_status("Checking what qualities are available...")
+            try:
+                title, choices = await asyncio.to_thread(
+                    available_qualities, tools["yt-dlp"], url)
+            except Exception:                          # noqa: BLE001
+                title, choices = "", []
+            self._set_busy(False)
+
+            if not choices:
+                # Nothing to choose between: fall back to the setting rather
+                # than blocking on a question with no answers.
+                self.app.notify(
+                    "Could not read the qualities for that link - using your "
+                    "usual setting.", severity="warning")
+                self._enqueue([url])
+                queued += 1
+                continue
+
+            chosen = await self.app.push_screen_wait(
+                QualityScreen(title or url, choices))
+            if chosen is None:
+                self.app.notify("Skipped that link.")
+                continue
+            self._enqueue([url], quality=str(chosen))
+            queued += 1
+
+        self._set_status("Ready." if not queued else "Starting...")
+        if queued:
+            self._ensure_worker()
+
+    def _enqueue(self, urls, quality=None):
+        """Put links in the list as waiting, and on the queue.
+
+        `quality` is set when the person picked one for these links; None
+        means use whatever the setting says at the time it runs.
+        """
         for url in urls:
             self._sequence += 1
             tag = str(self._sequence)
             self._add_row(tag, url)
             with self._queue_lock:
-                self._queue.append((tag, url))
+                self._queue.append((tag, url, quality))
         self._after_list_change()      # renumbers the queue as part of this
         return len(urls)
 
@@ -348,7 +413,7 @@ class MainScreen(Screen):
         """Give every waiting row its current place in the queue."""
         with self._queue_lock:
             waiting = list(self._queue)
-        for position, (tag, _) in enumerate(waiting, 1):
+        for position, (tag, _, _q) in enumerate(waiting, 1):
             row = self._rows.get(tag)
             if row is not None:
                 row.set_waiting(position)
@@ -493,10 +558,23 @@ class MainScreen(Screen):
 
     # -- the worker ------------------------------------------------------
     def _take_batch(self, size):
-        """Remove and return up to `size` waiting items."""
+        """Remove and return up to `size` waiting items of one quality.
+
+        Entries carry the quality chosen for them, so a batch only groups
+        items that want the same one.
+        """
         with self._queue_lock:
-            batch = self._queue[:size]
-            del self._queue[:size]
+            if not self._queue:
+                return []
+            wanted = self._queue[0][2]
+            batch = []
+            rest = []
+            for entry in self._queue:
+                if len(batch) < size and entry[2] == wanted:
+                    batch.append(entry)
+                else:
+                    rest.append(entry)
+            self._queue[:] = rest
         return batch
 
     @work(thread=True, exclusive=True, group="download")
@@ -545,12 +623,13 @@ class MainScreen(Screen):
                     break
 
                 ui(self._renumber_waiting)
-                tags = [t for t, _ in batch]
-                links = [u for _, u in batch]
+                # Every entry in a batch shares one quality, chosen when it
+                # was added; falling back to the setting when it was not.
+                batch_quality = batch[0][2] or cfg["quality"]
 
                 # Playlists are expanded on the way in, adding rows as needed.
                 expanded = []
-                for tag, url in batch:
+                for tag, url, _q in batch:
                     videos = expand_playlists(tools["yt-dlp"], [url], callbacks)
                     if not videos:
                         ui(self._row_finish, tag, False,
@@ -580,13 +659,13 @@ class MainScreen(Screen):
 
                 ui(self._set_busy, False)
                 results = dl.run_downloads(
-                    tools, links, plan, cfg["output_dir"], cfg["quality"],
+                    tools, links, plan, cfg["output_dir"], batch_quality,
                     downloader="aria2c", archive=cfg["archive"],
                     callbacks=callbacks, tags=tags,
                 )
                 saved += sum(1 for r in results if r[1])
                 failed += sum(1 for r in results if not r[1])
-                self._record_results(results, cfg["quality"])
+                self._record_results(results, batch_quality)
 
             ui(self._finished, saved, failed, cfg["output_dir"])
 
@@ -605,7 +684,7 @@ class MainScreen(Screen):
         tag = str(self._sequence)
         self._add_row(tag, url)
         with self._queue_lock:
-            self._queue.append((tag, url))
+            self._queue.append((tag, url, None))
         self._after_list_change()
 
     def _record_results(self, results, quality=None):

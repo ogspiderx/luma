@@ -12,15 +12,25 @@ REM ------------------------------------------------------------------ REM
 
 cd /d "%~dp0"
 
-REM --- open in a clean, chrome-free window ----------------------------
-REM  Windows Terminal can run with no tabs and no title bar, so Luma fills
-REM  the window on its own. Relaunch there once, then carry on normally.
-REM  LUMA_FRAMED stops that from looping; pass --windowed to skip it.
+REM --- open in its own window -----------------------------------------
+REM  Luma opens maximised in Windows Terminal, which keeps the tab strip
+REM  and title bar. That looks slightly busier than focus mode, but it is
+REM  what you grab to move the window -- focus mode leaves nothing to drag.
+REM
+REM    run.bat            maximised, movable       (default)
+REM    run.bat --bare     no tabs, no title bar    (cannot be dragged)
+REM    run.bat --windowed plain console, no relaunch
+REM
+REM  F11 toggles full screen at any time, whichever was used.
+REM  LUMA_FRAMED stops the relaunch from looping.
+set "LUMA_WTMODE=--maximized"
+if /i "%~1"=="--bare" set "LUMA_WTMODE=--focus --maximized"
+
 if not defined LUMA_FRAMED if /i not "%~1"=="--windowed" (
     where wt.exe >nul 2>&1
     if not errorlevel 1 (
         set "LUMA_FRAMED=1"
-        start "" wt.exe --focus --maximized cmd /c "%~f0"
+        start "" wt.exe %LUMA_WTMODE% cmd /c "%~f0"
         exit /b 0
     )
 )

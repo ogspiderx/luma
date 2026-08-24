@@ -1,23 +1,44 @@
 /* ------------------------------------------------------------------ *
  *  Luma
  *
- *  Minimal by intent: space and hierarchy do the work, not decoration.
- *  Every colour comes from the active theme, so the app follows whichever
- *  appearance the user picked instead of fighting it.
+ *  The idea is light falling in a dark room. The background stays deep
+ *  and quiet; gold is spent only on what is actually happening -- the
+ *  bar as it fills, the box under the cursor, the key hints -- so the
+ *  eye is drawn to the work rather than to the furniture.
  *
- *  Motion is limited to three places, each tied to something the user is
- *  waiting on: the spinner while preparing, the progress bar filling, and
- *  a brief highlight when a download lands. Idle screens do not move.
+ *  Every colour comes from the active theme, so choosing a different
+ *  one in Settings re-tints the whole app rather than fighting it.
+ *
+ *  Motion is limited to three places, each tied to something the user
+ *  is waiting on: the spinner while preparing, the bar filling, and a
+ *  brief highlight when a download lands. Idle screens do not move.
  * ------------------------------------------------------------------ */
 
 Screen {
     background: $background;
 }
 
+/* -- the bar across the top -- */
+
+Header {
+    background: $surface;
+    color: $foreground;
+    text-style: bold;
+}
+
+Footer {
+    background: $surface;
+}
+
+FooterKey .footer-key--key {
+    color: $accent;
+    text-style: bold;
+}
+
 /* -- main screen -- */
 
 #main-body {
-    padding: 1 2;
+    padding: 1 3;
     height: 1fr;
 }
 
@@ -31,8 +52,15 @@ Screen {
     margin-bottom: 1;
 }
 
+/* The box you type in is the one thing always worth finding. */
 #url-input {
     width: 1fr;
+    border: tall $panel;
+    background: $surface;
+}
+
+#url-input:focus {
+    border: tall $accent;
 }
 
 #download-btn {
@@ -40,21 +68,43 @@ Screen {
     min-width: 14;
 }
 
+/* A quiet slab of facts, set apart from the list below it. */
 #plan-panel {
     color: $text-muted;
     height: auto;
     padding: 0 1;
+    border-left: outer $secondary;
+    margin-bottom: 1;
 }
 
+/* -- the list header: how many, and how to arrange them -- */
+
+#list-header {
+    height: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+#queue-note {
+    color: $text-muted;
+    text-style: italic;
+    width: 1fr;
+    height: auto;
+}
+
+#sort-select {
+    width: 26;
+}
 
 #downloads {
     height: 1fr;
-    padding: 1 0;
+    scrollbar-size-vertical: 1;
 }
 
 #status-row {
     height: auto;
     align-vertical: middle;
+    padding-top: 1;
 }
 
 /* The spinner is only mounted-visible while work is in flight. */
@@ -70,7 +120,6 @@ Screen {
     width: 1fr;
 }
 
-/* Offered only while something is actually downloading. */
 #stop-btn {
     min-width: 8;
     height: 1;
@@ -84,7 +133,6 @@ Screen {
     background: $error;
 }
 
-/* Only offered once there is something finished to clear. */
 #clear-btn {
     min-width: 13;
     height: 1;
@@ -98,29 +146,13 @@ Screen {
     color: $foreground;
 }
 
-/* -- a download in progress -- */
-
-/* -- the list header: how many, and how to arrange them -- */
-
-#list-header {
-    height: auto;
-    padding: 0 1;
-}
-
-#queue-note {
-    color: $text-muted;
-    width: 1fr;
-    height: auto;
-}
-
-#sort-select {
-    width: 24;
-}
+/* -- a download in the list -- */
 
 DownloadRow {
     height: auto;
     margin-bottom: 1;
     padding: 0 1;
+    background: $surface;
     border-left: outer $panel;
 }
 
@@ -133,6 +165,32 @@ DownloadRow > Horizontal {
 DownloadRow .row-main {
     height: auto;
     width: 1fr;
+}
+
+DownloadRow .row-title {
+    text-overflow: ellipsis;
+    text-style: bold;
+}
+
+DownloadRow .row-detail {
+    color: $text-muted;
+}
+
+DownloadRow ProgressBar {
+    width: 100%;
+    height: 1;
+}
+
+DownloadRow Bar > .bar--bar {
+    color: $accent;
+}
+
+DownloadRow Bar > .bar--complete {
+    color: $success;
+}
+
+DownloadRow PercentageStatus {
+    color: $text-muted;
 }
 
 /* The cross that removes a row, or stops it if it is still going. */
@@ -149,23 +207,6 @@ DownloadRow .row-remove {
 DownloadRow .row-remove:hover {
     background: $error;
     color: $foreground;
-}
-
-DownloadRow .row-title {
-    text-overflow: ellipsis;
-}
-
-DownloadRow .row-detail {
-    color: $text-muted;
-}
-
-DownloadRow ProgressBar {
-    width: 100%;
-    height: 1;
-}
-
-DownloadRow Bar > .bar--bar {
-    color: $accent;
 }
 
 DownloadRow.-done {
@@ -202,14 +243,15 @@ DownloadRow.-just-finished {
 
 #settings-body,
 #history-body {
-    padding: 0 2;
+    padding: 0 3;
     height: 1fr;
 }
 
 #settings-title,
 #history-title {
     text-style: bold;
-    padding: 1 2 0 2;
+    color: $accent;
+    padding: 1 3 1 3;
     height: auto;
 }
 
@@ -222,6 +264,15 @@ DownloadRow.-just-finished {
 
 .setting Label {
     color: $text-muted;
+}
+
+.setting Input {
+    border: tall $panel;
+    background: $surface;
+}
+
+.setting Input:focus {
+    border: tall $accent;
 }
 
 .setting-switch {
@@ -239,14 +290,13 @@ DownloadRow.-just-finished {
     height: auto;
 }
 
-
 Input.-invalid {
     border: tall $error;
 }
 
 #settings-actions {
     height: auto;
-    padding: 0 2 1 2;
+    padding: 0 3 1 3;
 }
 
 #settings-actions Button {
@@ -256,9 +306,52 @@ Input.-invalid {
 #settings-message {
     color: $warning;
     height: auto;
-    padding: 0 2;
+    padding: 0 3;
 }
 
+/* -- choosing a quality -- */
+
+QualityScreen {
+    align: center middle;
+    background: $background 70%;
+}
+
+#quality-box {
+    width: 56;
+    max-width: 90%;
+    height: auto;
+    max-height: 80%;
+    padding: 1 2;
+    background: $surface;
+    border: thick $accent;
+}
+
+#quality-heading {
+    text-style: bold;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+#quality-title {
+    color: $text-muted;
+    text-overflow: ellipsis;
+    margin-bottom: 1;
+}
+
+#quality-options {
+    height: auto;
+    max-height: 14;
+    margin-bottom: 1;
+}
+
+.quality-option {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#quality-actions {
+    height: auto;
+}
 
 /* -- history -- */
 
@@ -269,15 +362,16 @@ Input.-invalid {
 #history-table,
 #errors-table {
     height: 1fr;
+    background: $surface;
 }
 
 .empty-note {
     color: $text-muted;
-    padding: 1 2;
+    text-style: italic;
+    padding: 1 3;
     height: auto;
 }
 
-
 #history-back {
-    margin: 0 2 1 2;
+    margin: 0 3 1 3;
 }
