@@ -365,10 +365,130 @@ def test_blocked_speedtest_is_not_retried():
         st.reset_speedtest_state()
 
 
+def test_never_runs_past_the_end():
+    """The bar reached several hundred percent and then seized up.
+
+    It happened when the streams were not announced up front: each new stream
+    pushed the count higher than the scale it was being divided by.
+    """
+    print("\n[the bar cannot run past the end]")
+
+    # No "format(s)" line at all -- the shape that misbehaved.
+    unannounced = [
+        "[download] Destination: /d/C [dQw4w9WgXcQ].f135.mp4",
+        "[#a1 25MiB/50MiB(50%) CN:16 DL:900KiB ETA:28s]",
+        "[#a1 50MiB/50MiB(100%) CN:16 DL:900KiB ETA:0s]",
+        "[download] Destination: /d/C [dQw4w9WgXcQ].f140.m4a",
+        "[#b2 3MiB/6MiB(50%) CN:16 DL:800KiB ETA:3s]",
+        "[#b2 6MiB/6MiB(100%) CN:16 DL:800KiB ETA:0s]",
+    ]
+    percents = [r["percent"] for r in replay(unannounced)]
+    check("nothing above 100", all(p <= 100.0 for p in percents), str(percents))
+    check("nothing below 0", all(p >= 0.0 for p in percents), str(percents))
+    check("a second stream is expected from the filename alone",
+          percents[1] <= 50.0, str(percents))
+    check("it still only moves forwards",
+          all(b >= a for a, b in zip(percents, percents[1:])), str(percents))
+    check("and it does reach the end", percents[-1] == 100.0, str(percents[-1]))
+
+    # Far more streams than announced, which is what inflated the scale.
+    lines = ["[info] a: Downloading 1 format(s): 135"]
+    for n in range(5):
+        lines.append(f"[download] Destination: /d/C [dQw4w9WgXcQ].f{130 + n}.mp4")
+        lines.append(f"[#s{n} 10MiB/10MiB(100%) CN:8 DL:900KiB ETA:0s]")
+    many = [r["percent"] for r in replay(lines)]
+    check("five unannounced streams stay within range",
+          all(0.0 <= p <= 100.0 for p in many), str(many))
+    check("merging does not count as another stream",
+          replay(lines + ['[Merger] Merging formats into "/d/C.mp4"'])[-1]
+          ["percent"] <= 100.0)
+
+
+def test_concurrent_pieces_are_added_up():
+    """aria2c reports each piece separately; they must not fight each other."""
+    print("\n[concurrent pieces are summed, not swapped]")
+    readings = replay([
+        "[info] a: Downloading 1 format(s): 135",
+        "[download] Destination: /d/C [dQw4w9WgXcQ].mp4",
+        "[#p1 5MiB/25MiB(20%) CN:8 DL:500KiB ETA:40s]",
+        "[#p2 2MiB/25MiB(8%) CN:8 DL:400KiB ETA:57s]",
+        "[#p1 15MiB/25MiB(60%) CN:8 DL:500KiB ETA:20s]",
+        "[#p2 20MiB/25MiB(80%) CN:8 DL:400KiB ETA:12s]",
+    ])
+    totals = [r["total_bytes"] for r in readings]
+    check("the total covers both pieces once both are seen",
+          totals[-1] == 50 * 1024 ** 2, str(totals[-1] / 1048576))
+    check("the total does not shrink back",
+          all(b >= a for a, b in zip(totals, totals[1:])),
+          str([t // 1048576 for t in totals]))
+    check("the finished amount adds both pieces",
+          readings[-1]["done_bytes"] == 35 * 1024 ** 2,
+          str(readings[-1]["done_bytes"] / 1048576))
+    check("percentages stay sane",
+          all(0.0 <= r["percent"] <= 100.0 for r in readings),
+          str([round(r["percent"], 1) for r in readings]))
+
+
+def test_time_remaining_is_trustworthy():
+    """A countdown that reads '-1s' is worse than no countdown."""
+    print("\n[time remaining is only shown when believable]")
+    from luma.engine.download import _clean_eta
+
+    for bad, why in [("-1s", "negative"), ("-00:05", "negative clock"),
+                     ("99:00:00", "days away"), ("unknown", "unknown"),
+                     ("", "empty"), ("??", "nonsense")]:
+        check(f"drops {bad!r} ({why})", _clean_eta(bad) == "", _clean_eta(bad))
+    for good in ("19s", "1m30s", "00:19", "1:02:03"):
+        check(f"keeps {good!r}", _clean_eta(good) == good, _clean_eta(good))
+
+    parsed = parse_progress("[#a1 5MiB/50MiB(10%) CN:16 DL:900KiB ETA:-3s]")
+    check("a negative estimate never leaves the engine",
+          parsed["eta"] == "", repr(parsed["eta"]))
+
+
+def test_the_same_message_is_not_repeated():
+    """'Picking the best quality' appeared over and over."""
+    print("\n[a message is not repeated back to back]")
+    from luma.engine.callbacks import EngineCallbacks
+    from luma.engine.download import _milestone
+
+    said = []
+    cb = EngineCallbacks(on_video_status=lambda tag, m: said.append(m))
+    state = {}
+    lines = [
+        "[info] a: Downloading 1 format(s): 135+140",
+        "[info] b: Downloading 1 format(s): 135+140",
+        "[info] c: Downloading 1 format(s): 135+140",
+        '[Merger] Merging formats into "/d/C.mp4"',
+        "[info] d: Downloading 1 format(s): 135+140",
+    ]
+    for line in lines:
+        note = _milestone(line)
+        if note is not None and note != state.get("last_note"):
+            state["last_note"] = note
+            cb.on_video_status("1", note)
+
+    check("three in a row collapse into one",
+          said[:2] == ["Picking the best quality...",
+                       "Combining video and audio..."], str(said))
+    check("a different message still gets through",
+          "Combining video and audio..." in said, str(said))
+    check("nothing is ever said twice in succession",
+          all(a != b for a, b in zip(said, said[1:])), str(said))
+    check("but it may be said again later, after something else",
+          said == ["Picking the best quality...",
+                   "Combining video and audio...",
+                   "Picking the best quality..."], str(said))
+
+
 async def run_all():
     print("=" * 62)
     print("  Luma progress-display and controls checks")
     print("=" * 62)
+    test_never_runs_past_the_end()
+    test_concurrent_pieces_are_added_up()
+    test_time_remaining_is_trustworthy()
+    test_the_same_message_is_not_repeated()
     test_sizes_parse()
     test_progress_only_moves_forwards()
     test_sizes_only_grow()

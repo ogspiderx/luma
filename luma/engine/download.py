@@ -142,8 +142,10 @@ def build_cmd(tools, url, plan, output_dir, quality, downloader="aria2c",
 # --------------------------------------------------------------------------- #
 
 # aria2c compact line: [#a1b2c3 46MiB/54MiB(85%) CN:4 DL:698KiB ETA:11s]
+# The leading id matters: aria2c prints one of these per download it has in
+# flight, so without it several concurrent pieces look like one thrashing file.
 _ARIA_RE = re.compile(
-    r"\[#\w+\s+([\d.]+[KMGTP]?i?B)/([\d.]+[KMGTP]?i?B)\((\d+)%\)"
+    r"\[#(\w+)\s+([\d.]+[KMGTP]?i?B)/([\d.]+[KMGTP]?i?B)\((\d+)%\)"
     r"\s+CN:(\d+)\s+DL:([\d.]+[KMGTP]?i?B)(?:\s+ETA:(\S+?))?\]")
 # yt-dlp native: [download]  85.0% of 54.00MiB at 700.00KiB/s ETA 00:19
 _YTDL_RE = re.compile(
@@ -167,6 +169,27 @@ def size_to_bytes(text):
         return 0
 
 
+#: A sane countdown: "19s", "1m30s", "00:19", "1:02:03".
+_ETA_OK = re.compile(r"^\d+(?:[hms]\d*)*$|^\d+(?::\d{2}){1,2}$", re.IGNORECASE)
+
+
+def _clean_eta(text):
+    """Return a trustworthy time-remaining string, or nothing.
+
+    The tools occasionally emit a negative or nonsensical estimate while they
+    are still working one out. Showing nothing beats showing "-1s".
+    """
+    value = (text or "").strip()
+    if not value or value.startswith("-") or value.lower() in ("unknown", "n/a"):
+        return ""
+    if not _ETA_OK.match(value):
+        return ""
+    # A countdown of a day or more is a guess, not information.
+    if re.match(r"^\d+:\d{2}:\d{2}$", value) and int(value.split(":")[0]) >= 24:
+        return ""
+    return value
+
+
 def parse_progress(line):
     """Parse a progress line into a dict, or None if it isn't one.
 
@@ -176,15 +199,16 @@ def parse_progress(line):
     """
     m = _ARIA_RE.search(line)
     if m:
-        done, tot, pct, cn, spd, eta = m.groups()
+        gid, done, tot, pct, cn, spd, eta = m.groups()
         return {
+            "id": gid,
             "percent": float(pct),
             "done": done,
             "total": tot,
             "done_bytes": size_to_bytes(done),
             "total_bytes": size_to_bytes(tot),
             "speed": f"{spd}/s",
-            "eta": eta or "",
+            "eta": _clean_eta(eta),
             "connections": int(cn),
         }
     m = _YTDL_RE.search(line)
@@ -192,13 +216,14 @@ def parse_progress(line):
         pct, tot, spd, eta = m.groups()
         total_bytes = size_to_bytes(tot)
         return {
+            "id": "download",
             "percent": float(pct),
             "done": "",
             "total": tot,
             "done_bytes": int(total_bytes * float(pct) / 100.0),
             "total_bytes": total_bytes,
             "speed": spd or "",
-            "eta": eta or "",
+            "eta": _clean_eta(eta),
             "connections": None,
         }
     return None
@@ -271,6 +296,9 @@ def _track_filepath(line, state):
 #: "[info] abc: Downloading 1 format(s): 135+140" -> two streams.
 _FORMATS_RE = re.compile(r"Downloading\s+\d+\s+format\(s\):\s*([\w+]+)")
 
+#: ".f135." in a filename marks one stream of a video built from several.
+_FORMAT_MARKER = re.compile(r"\.f\d+\.")
+
 
 def _track_streams(line, state):
     """Follow which of a video's streams is being fetched.
@@ -278,52 +306,89 @@ def _track_streams(line, state):
     A video is usually delivered as a picture stream followed by a sound
     stream. Each reports its own size and percentage, so without this the
     figures appear to jump backwards when the second one starts.
+
+    Only a new destination begins a stream. Merging is not a download, so it
+    must not advance the count.
     """
     m = _FORMATS_RE.search(line)
     if m:
-        state["streams_total"] = max(1, len(m.group(1).split("+")))
+        declared = max(1, len(m.group(1).split("+")))
+        state["streams_total"] = max(declared, state.get("streams_total", 1))
         return
 
-    if _DEST_RE.search(line) or _MERGE_RE.search(line):
-        if state.get("stream_started"):
-            # Bank the stream that just finished so its bytes keep counting.
-            state["done_base"] = (state.get("done_base", 0)
-                                  + state.get("stream_total", 0))
-            state["stream_index"] = state.get("stream_index", 0) + 1
-        state["stream_started"] = bool(_DEST_RE.search(line))
-        state["stream_total"] = 0
+    dest = _DEST_RE.search(line)
+    if not dest:
+        return
+
+    # A name like "Title [id].f135.mp4" is a single stream of a video that
+    # will be assembled from several, so a second one is coming even if it was
+    # never announced. Knowing that up front avoids the bar reaching the end
+    # and then having to come back.
+    if _FORMAT_MARKER.search(dest.group(1)):
+        state["streams_total"] = max(2, state.get("streams_total", 1))
+
+    if state.get("stream_started"):
+        # Bank the stream that just finished so its bytes keep counting.
+        pieces = state.get("pieces") or {}
+        state["done_base"] = (state.get("done_base", 0)
+                              + sum(t for _, t in pieces.values()))
+        state["stream_index"] = state.get("stream_index", 0) + 1
+    state["stream_started"] = True
+    state["pieces"] = {}
+
+    # If more streams turn up than were announced, believe what is happening
+    # rather than the announcement -- this is what kept the bar past its end.
+    needed = state.get("stream_index", 0) + 1
+    if needed > state.get("streams_total", 1):
+        state["streams_total"] = needed
+        state["percent_seen"] = 0.0    # the scale changed; let it re-settle
 
 
 def _overall(state, parsed):
-    """Turn one stream's figures into figures for the whole video.
+    """Turn stream readings into figures for the whole video.
 
-    Percentage advances across the streams rather than restarting, and the
-    sizes accumulate, so the numbers only ever move forwards.
+    aria2c reports each piece it has in flight separately, so the pieces are
+    summed rather than treated as competing views of the same file. The result
+    is clamped and cannot run past the end.
     """
     streams = max(1, state.get("streams_total", 1))
-    index = min(state.get("stream_index", 0), streams - 1)
-    state["stream_total"] = parsed["total_bytes"] or state.get("stream_total", 0)
+    index = max(0, min(state.get("stream_index", 0), streams - 1))
 
-    # Prefer the tool's own percentage: the sizes it prints are rounded for
-    # display, so deriving a fraction from them drifts by a percent or two.
-    if parsed["percent"]:
-        fraction = min(1.0, parsed["percent"] / 100.0)
-    elif parsed["total_bytes"]:
-        fraction = min(1.0, parsed["done_bytes"] / parsed["total_bytes"])
+    # Remember this piece and add up everything in flight for this stream.
+    pieces = state.setdefault("pieces", {})
+    pieces[parsed.get("id") or "download"] = (
+        parsed["done_bytes"], parsed["total_bytes"],
+    )
+    stream_done = sum(d for d, _ in pieces.values())
+    stream_total = sum(t for _, t in pieces.values())
+
+    if len(pieces) == 1 and parsed["percent"]:
+        # One piece in flight: its own percentage is exact, where the sizes it
+        # prints are rounded for display and drift by a percent or so.
+        fraction = parsed["percent"] / 100.0
+    elif stream_total > 0:
+        fraction = stream_done / stream_total
+    elif parsed["percent"]:
+        fraction = parsed["percent"] / 100.0
     else:
         fraction = 0.0
+    fraction = max(0.0, min(1.0, fraction))
 
-    percent = min(100.0, (index + fraction) / streams * 100.0)
-    # Never let a reading pull the bar backwards.
-    percent = max(percent, state.get("percent_seen", 0.0))
-    state["percent_seen"] = percent
+    percent = (index + fraction) / streams * 100.0
+    percent = max(0.0, min(100.0, percent))
+    # Resist small backwards steps without letting the bar seize up: a genuine
+    # move of more than a couple of percent is believed.
+    previous = state.get("percent_seen", 0.0)
+    if percent < previous - 2.0:
+        state["percent_seen"] = percent
+    else:
+        percent = max(percent, previous)
+        state["percent_seen"] = percent
 
-    base = state.get("done_base", 0)
-    done_bytes = base + parsed["done_bytes"]
-    total_bytes = base + (parsed["total_bytes"] or 0)
-    # Once the last stream's size is known the total stops moving; before then
-    # it grows as each stream is announced, which is honest rather than jumpy.
-    total_bytes = max(total_bytes, state.get("total_seen", 0))
+    base_done = state.get("done_base", 0)
+    done_bytes = base_done + stream_done
+    total_bytes = base_done + stream_total
+    total_bytes = max(total_bytes, done_bytes, state.get("total_seen", 0))
     state["total_seen"] = total_bytes
 
     return {
@@ -399,7 +464,9 @@ def _stream_download(cmd, tag, callbacks):
                 continue
 
             note = _milestone(line)
-            if note is not None:
+            if note is not None and note != state.get("last_note"):
+                # Saying the same thing twice in a row reads as being stuck.
+                state["last_note"] = note
                 callbacks.on_video_status(tag, note)
 
         proc.wait()

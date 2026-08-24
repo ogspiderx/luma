@@ -12,6 +12,19 @@ REM ------------------------------------------------------------------ REM
 
 cd /d "%~dp0"
 
+REM --- open in a clean, chrome-free window ----------------------------
+REM  Windows Terminal can run with no tabs and no title bar, so Luma fills
+REM  the window on its own. Relaunch there once, then carry on normally.
+REM  LUMA_FRAMED stops that from looping; pass --windowed to skip it.
+if not defined LUMA_FRAMED if /i not "%~1"=="--windowed" (
+    where wt.exe >nul 2>&1
+    if not errorlevel 1 (
+        set "LUMA_FRAMED=1"
+        start "" wt.exe --focus --maximized cmd /c "%~f0"
+        exit /b 0
+    )
+)
+
 REM --- locate Python -------------------------------------------------
 set "PY="
 where py >nul 2>&1 && set "PY=py -3"

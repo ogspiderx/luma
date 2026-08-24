@@ -82,10 +82,12 @@ class DownloadRow(Widget):
         if self._finished:
             return
         bar = self.query_one(ProgressBar)
+        # Clamp here as well as in the engine: a bar that reads past 100%
+        # destroys trust in everything else on screen.
+        percent = max(0.0, min(100.0, float(parsed.get("percent") or 0.0)))
         # Glide to the new value instead of jumping, so the bar reads as
         # motion rather than a series of steps.
-        bar.animate("progress", value=float(parsed["percent"]),
-                    duration=FILL_SECONDS)
+        bar.animate("progress", value=percent, duration=FILL_SECONDS)
 
         self._speed_bytes = rate_to_bytes(parsed.get("speed"))
         self.set_detail(self._describe(parsed))
