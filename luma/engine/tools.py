@@ -53,6 +53,66 @@ def _which(name):
     return shutil.which(name)
 
 
+# Away from Windows the three tools come from the system, not from us -- the
+# releases Luma fetches are Windows binaries. Asking for them one at a time
+# meant a person installed one, restarted Luma, and was told about the next:
+# three rounds to reach a working app. They are all named at once instead, in
+# the form the distribution actually wants, since the command is aria2c but
+# the package that carries it is called aria2.
+_SYSTEM_PACKAGES = {
+    "yt-dlp": "yt-dlp",
+    "aria2c": "aria2",
+    "ffmpeg": "ffmpeg",
+    "ffprobe": "ffmpeg",
+}
+
+_INSTALLERS = (
+    ("pacman", "sudo pacman -S --needed {packages}"),
+    ("apt", "sudo apt install {packages}"),
+    ("dnf", "sudo dnf install {packages}"),
+    ("zypper", "sudo zypper install {packages}"),
+    ("apk", "sudo apk add {packages}"),
+    ("brew", "brew install {packages}"),
+)
+
+
+def _install_command(tools_missing):
+    packages = sorted({_SYSTEM_PACKAGES.get(t, t) for t in tools_missing})
+    for manager, template in _INSTALLERS:
+        if _which(manager):
+            return template.format(packages=" ".join(packages))
+    return None
+
+
+def _missing_system_tools():
+    missing = []
+    for command in ("yt-dlp", "aria2c", "ffmpeg", "ffprobe"):
+        if _which(command) or os.path.exists(os.path.join(BIN_DIR, command)):
+            continue
+        missing.append(command)
+    return missing
+
+
+def _require_system_tools():
+    missing = _missing_system_tools()
+    if not missing:
+        return
+    names = ", ".join(missing)
+    one = len(missing) == 1
+    command = _install_command(missing)
+    if command:
+        raise ToolInstallError(
+            f"Luma needs {names}, which {'is' if one else 'are'} not "
+            f"installed. Install {'it' if one else 'them'} with:  {command}  "
+            f"- then start Luma again."
+        )
+    raise ToolInstallError(
+        f"Luma needs {names}, which {'is' if one else 'are'} not installed. "
+        f"Please install {'it' if one else 'them'} with your system's package "
+        f"manager, then start Luma again."
+    )
+
+
 def _require_windows(tool):
     raise ToolInstallError(
         f"{tool} is not installed, and it can only be installed automatically "
@@ -66,6 +126,9 @@ def ensure_tools(callbacks=None):
     os.makedirs(BIN_DIR, exist_ok=True)
     is_windows = os.name == "nt"
     exe = ".exe" if is_windows else ""
+
+    if not is_windows:
+        _require_system_tools()
 
     tools = {}
 

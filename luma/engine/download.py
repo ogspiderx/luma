@@ -2,6 +2,7 @@ import collections
 import concurrent.futures as futures
 import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -13,6 +14,50 @@ from .paths import title_from_filename
 
 _active_procs = set()
 _procs_lock = threading.Lock()
+
+
+# yt-dlp does the actual fetching through aria2c, so aria2c is a child of a
+# child. Signalling yt-dlp on its own leaves aria2c running -- still holding
+# connections open, still writing into the download folder, and invisible to
+# the person who pressed Stop. Both platforms have to be told to take the
+# whole tree down, and that has to be arranged when the process starts.
+if os.name == "nt":
+    _SPAWN_KWARGS = {}
+else:
+    _SPAWN_KWARGS = {"start_new_session": True}
+
+
+def _signal_tree(proc, sig):
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+            capture_output=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return
+    os.killpg(os.getpgid(proc.pid), sig)
+
+
+def _stop_tree(proc):
+    try:
+        _signal_tree(proc, signal.SIGTERM)
+    except Exception:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+
+def _kill_tree(proc):
+    try:
+        _signal_tree(proc, getattr(signal, "SIGKILL", signal.SIGTERM))
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
 _cancel_event = threading.Event()
 
@@ -58,20 +103,14 @@ def terminate_all(timeout=5):
     with _procs_lock:
         procs = list(_active_procs)
     for proc in procs:
-        try:
-            proc.terminate()
-        except Exception:
-            pass
+        _stop_tree(proc)
     deadline = time.time() + timeout
     for proc in procs:
         try:
             remaining = max(0.1, deadline - time.time())
             proc.wait(timeout=remaining)
         except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            _kill_tree(proc)
     with _procs_lock:
         _active_procs.clear()
 
@@ -423,6 +462,7 @@ def _stream_download(cmd, tag, callbacks):
             bufsize=1,
             encoding="utf-8",
             errors="replace",
+            **_SPAWN_KWARGS,
         )
     except Exception as exc:
         return 1, f"Could not start the download ({exc}).", None
@@ -431,7 +471,7 @@ def _stream_download(cmd, tag, callbacks):
     try:
         for raw in proc.stdout:
             if _cancel_event.is_set() or is_tag_cancelled(tag):
-                proc.terminate()
+                _stop_tree(proc)
                 break
 
             line = raw.rstrip("\r\n")

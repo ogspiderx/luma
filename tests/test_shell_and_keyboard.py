@@ -447,6 +447,45 @@ async def test_a_row_fits_at_every_size():
                   0 < row.region.height <= 6, str(row.region.height))
 
 
+async def test_every_shortcut_can_actually_be_pressed():
+    """A binding is only real if this terminal can deliver the key.
+
+    Ctrl+H cannot be delivered on Unix: the byte it sends, 0x08, is the one
+    Backspace has always sent, so the terminal reports Backspace and the
+    binding never fires. pilot.press() injects key names directly and so
+    cannot see this -- History looked bound and was unreachable in Konsole.
+    Every shortcut Luma puts in front of a person is checked against what
+    the terminal is actually able to send.
+    """
+    print("\n[every shortcut can actually be pressed]")
+    if os.name == "nt":
+        check("skipped -- Windows uses console key events, not escapes", True)
+        return
+
+    from textual._ansi_sequences import ANSI_SEQUENCES_KEYS
+
+    deliverable = set()
+    for keys in ANSI_SEQUENCES_KEYS.values():
+        if not isinstance(keys, (tuple, list)):
+            continue          # a sequence the parser deliberately ignores
+        for key in keys:
+            deliverable.add(getattr(key, "value", str(key)))
+
+    app = LumaApp(auto_prepare=False)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        offered = [
+            (active.binding.key, active.binding.description)
+            for active in app.screen.active_bindings.values()
+            if active.binding.show and active.enabled
+        ]
+
+    check("the screen offers some shortcuts", len(offered) >= 3, str(offered))
+    for key, description in offered:
+        check(f"{description!r} ({key}) is a key this terminal can send",
+              key in deliverable, f"{key} never arrives on Unix")
+
+
 async def run_all():
     print("=" * 62)
     print("  Luma shell, keyboard and sizing checks")
@@ -460,6 +499,7 @@ async def run_all():
     await test_settings_can_be_done_without_a_mouse()
     await test_history_can_be_read_without_a_mouse()
     await test_the_footer_only_offers_what_is_possible()
+    await test_every_shortcut_can_actually_be_pressed()
     test_the_size_rules_are_sane()
     await test_the_screen_carries_its_size()
     await test_spacing_actually_changes_with_the_size()

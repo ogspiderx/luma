@@ -34,6 +34,15 @@ from ..widgets.sizing import SizeAware
 
 PROBE_AT_ONCE = 4
 
+# Ctrl+H never arrives in a Unix terminal. The byte it sends, 0x08, is the one
+# Backspace has sent since teletypes, so the terminal hands it over as
+# Backspace and the binding never fires -- on Arch, in Konsole, History simply
+# could not be opened. Windows sends console key events instead and is not
+# affected, so it keeps the shortcut it has always had. Function keys carry no
+# such history on either platform.
+HISTORY_KEY = "ctrl+h" if os.name == "nt" else "f2"
+HISTORY_ALIAS = "f2" if os.name == "nt" else "ctrl+h"
+
 SORT_OPTIONS = [
     ("Order added", "added"),
     ("Unfinished first", "unfinished"),
@@ -46,7 +55,9 @@ SORT_OPTIONS = [
 class MainScreen(SizeAware, Screen):
     BINDINGS = [
         Binding("ctrl+s", "open_settings", "Settings", priority=True),
-        Binding("ctrl+h", "open_history", "History", priority=True),
+        Binding(HISTORY_KEY, "open_history", "History", priority=True),
+        Binding(HISTORY_ALIAS, "open_history", "History", priority=True,
+                show=False),
         Binding("ctrl+a", "same_for_all", "Same for all", priority=True),
         Binding("ctrl+x", "stop_downloads", "Stop", priority=True),
         Binding("ctrl+l", "clear_finished", "Clear done", priority=True),

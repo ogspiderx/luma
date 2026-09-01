@@ -9,6 +9,7 @@ DIST = os.path.join(ROOT, "dist")
 
 SKIP_DIRS = {
     "__pycache__", "bin", "downloads", "logs", "dist", ".git", ".pytest_cache",
+    ".venv",
 }
 
 SKIP_FILES = {
@@ -18,8 +19,8 @@ SKIP_FILES = {
 SKIP_SUFFIXES = (".pyc", ".pyo", ".part", ".aria2", ".zip")
 
 INCLUDE_TOP = {
-    "luma", "run.bat", "requirements.txt", "README.md", "SECURITY.md",
-    "PRIVACY.md", "TERMS.md",
+    "luma", "run.bat", "run.sh", "requirements.txt", "README.md",
+    "SECURITY.md", "PRIVACY.md", "TERMS.md",
 }
 
 

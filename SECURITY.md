@@ -78,9 +78,17 @@ Every download process is registered while it runs. On quit — including
 Ctrl+C and an unexpected failure — they are all terminated, and killed if they
 do not stop.
 
+Luma's downloader hands the actual fetching to a second program, so the thing
+to stop is a tree, not a process. Each tree is started in its own group and
+stopped as one; signalling only the program Luma launched would leave the
+fetcher running, still holding connections open and still writing files.
+
 > **Checked:** a long-running download is started, confirmed visible to the
 > operating system, then stopped; both Luma's registry and the process list are
-> confirmed empty afterwards.
+> confirmed empty afterwards. A second check starts a download that spawns a
+> fetcher of its own and confirms that the fetcher does not survive the stop
+> either -- distinguishing a process that has ended from one that has ended
+> but not yet been reaped, which are easily confused.
 
 ### Failures are explained, not dumped
 

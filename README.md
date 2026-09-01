@@ -29,6 +29,29 @@ have it, then fetches its own dependencies. `run.bat --bare` starts with no
 tabs or title bar at all, though that leaves nothing to grab if you want to
 move the window. After the first run, it starts in a second or two.
 
+**Linux** — Luma runs on Linux too, from source. Clone this folder and run
+`./run.sh`: it builds itself a small environment on first use (distributions
+like Arch refuse to install into the system Python, so Luma keeps its one
+dependency to itself) and starts in a second or two after that.
+
+The three download tools come from your distribution rather than from Luma,
+since the copies Luma fetches for itself are Windows programs. On Arch:
+
+```
+sudo pacman -S --needed yt-dlp aria2 ffmpeg
+```
+
+Luma names whatever is missing, with the command for your distribution, so
+there is nothing to look up. Everything else is kept beside Luma as on
+Windows; set `LUMA_HOME` to keep it somewhere else, and if Luma has been put
+somewhere it cannot write to, it uses `~/.local/share/Luma` instead. Your
+downloads go to whatever your desktop has set as its download folder, which
+KDE and GNOME both record and both translate.
+
+One key differs: **F2** opens History rather than Ctrl+H. A Unix terminal
+cannot tell Ctrl+H apart from Backspace — they have sent the same byte since
+teletypes — so the shortcut could never arrive.
+
 However you got Luma, its very first launch takes a moment longer than every
 one after it: it downloads the three small tools it uses to fetch and combine
 video. One of them is a real download, so give it a moment — you'll see it
@@ -50,7 +73,7 @@ maximised in its own window; **F11** makes it full screen.
 | Stop everything | **Ctrl + X** |
 | Clear finished ones | **Ctrl + L** |
 | Change how Luma works | **Ctrl + S** |
-| See what you've downloaded | **Ctrl + H** |
+| See what you've downloaded | **Ctrl + H** (**F2** on Linux) |
 | Close Luma | **Ctrl + Q** |
 
 The keys along the bottom change with what you can actually do — Stop only

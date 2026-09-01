@@ -8,6 +8,8 @@ _ILLEGAL_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _FORBIDDEN_ROOTS = (
     "/etc", "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/boot", "/dev",
     "/proc", "/sys",
+    "/lib", "/lib64", "/usr/lib", "/usr/lib64", "/usr/include", "/usr/share",
+    "/opt", "/run", "/srv", "/var",
 )
 
 _WINDOWS_ROOT_VARS = (

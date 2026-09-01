@@ -2,6 +2,7 @@
 import asyncio
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -304,6 +305,88 @@ def test_quitting_leaves_no_orphans():
         dl.reset_cancel()
 
 
+TREE = """
+import os, subprocess, sys, time
+# stands in for yt-dlp handing the actual fetching to aria2c
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+with open(os.path.join(os.environ["LUMA_TEST_DIR"], "child.pid"), "w") as fh:
+    fh.write(str(child.pid))
+print("[download] Destination: /tmp/x.f137.mp4", flush=True)
+for i in range(400):
+    print("[#aaaaaa 1MiB/10MiB(" + str(i % 100) + "%) CN:4 DL:1MiB ETA:9s]", flush=True)
+    time.sleep(0.2)
+"""
+
+
+def _process_running(pid):
+    """Alive and not a zombie.
+
+    os.kill(pid, 0) is not enough: it succeeds for a terminated process that
+    has not been reaped yet, which would make a dead grandchild look alive.
+    """
+    if os.name == "nt":
+        try:
+            out = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                capture_output=True, text=True, timeout=15,
+            ).stdout
+        except Exception:
+            return False
+        return str(pid) in out
+    try:
+        out = subprocess.run(["ps", "-p", str(pid), "-o", "stat="],
+                             capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return False
+    state = out.strip()
+    return bool(state) and not state.startswith("Z")
+
+
+def test_the_whole_download_tree_is_stopped():
+    print("\n[7b. stopping takes the whole tree with it]")
+    with tempfile.TemporaryDirectory() as td:
+        os.environ["LUMA_TEST_DIR"] = td
+        fake = support.write_stub_script(td, TREE.lstrip(), "tree_dl")
+        dl.reset_cancel()
+        done = threading.Event()
+
+        def run():
+            dl._stream_download(fake, "1/1", EngineCallbacks())
+            done.set()
+
+        threading.Thread(target=run, daemon=True).start()
+
+        pid_file = os.path.join(td, "child.pid")
+        for _ in range(80):
+            if os.path.exists(pid_file):
+                break
+            time.sleep(0.1)
+
+        try:
+            with open(pid_file) as fh:
+                child = int(fh.read().strip())
+        except (OSError, ValueError):
+            check("the second-stage downloader started", False, "no pid file")
+            dl.terminate_all(timeout=5)
+            dl.reset_cancel()
+            return
+
+        check("the second-stage downloader is running", _process_running(child))
+
+        dl.terminate_all(timeout=5)
+        done.wait(timeout=10)
+        time.sleep(1.0)
+
+        check("it does not survive the stop", not _process_running(child),
+              f"pid {child} still running")
+        if _process_running(child):
+            try:
+                os.kill(child, signal.SIGKILL)
+            except Exception:
+                pass
+        dl.reset_cancel()
+
+
 def test_interrupted_download_recovers():
     print("\n[8. an interrupted download is handled, not fatal]")
     with tempfile.TemporaryDirectory() as td:
@@ -422,6 +505,7 @@ async def run_all():
     test_damaged_files_survived()
     await test_damaged_files_still_let_the_app_start()
     test_quitting_leaves_no_orphans()
+    test_the_whole_download_tree_is_stopped()
     test_interrupted_download_recovers()
     test_crash_handler_catches_everything()
     await test_nothing_technical_reaches_the_user()
