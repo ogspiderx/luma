@@ -150,6 +150,17 @@ def test_url_validation():
           not _is_playlist_like("https://www.youtube.com/watch?v=a&list=RDa"))
     check("real playlist is expandable",
           _is_playlist_like("https://www.youtube.com/playlist?list=PL1"))
+    check("a show is a collection, not one video",
+          _is_playlist_like("https://www.youtube.com/shows/jrbrh"))
+    for shape in ("https://www.youtube.com/channel/UC1",
+                  "https://www.youtube.com/@someone",
+                  "https://www.youtube.com/c/someone",
+                  "https://www.youtube.com/user/someone"):
+        check(f"{shape.rsplit('/', 2)[1]} is still a collection",
+              _is_playlist_like(shape), shape)
+    check("a search is never downloaded wholesale",
+          not _is_playlist_like(
+              "https://www.youtube.com/results?search_query=cats"))
 
     with tempfile.TemporaryDirectory() as td:
         p = os.path.join(td, "urls.txt")

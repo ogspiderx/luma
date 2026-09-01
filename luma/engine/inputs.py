@@ -83,7 +83,7 @@ def _is_playlist_like(url):
     u = url.lower()
     if "/playlist" in u:
         return True
-    for marker in ("/channel/", "/@", "/c/", "/user/"):
+    for marker in ("/channel/", "/@", "/c/", "/user/", "/shows/"):
         if marker in u:
             return True
     return False
