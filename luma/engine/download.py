@@ -109,22 +109,32 @@ def clean_partials(output_dir, marker=None):
     return removed
 
 
+# Televisions, car stereos and cheap media players are far fussier than a
+# computer is. They want H.264 video and AAC audio, and they want the video
+# track first -- given the audio track first, many of them play the picture
+# in silence. Each step below gives up one of those wishes, so a video that
+# exists in nothing else still downloads.
+def _format_chain(quality):
+    cap = "" if str(quality).lower() == "best" else f"[height<={int(quality)}]"
+    return "/".join((
+        f"bv*[vcodec^=avc1]{cap}+ba[acodec^=mp4a]",
+        f"bv*{cap}+ba[acodec^=mp4a]",
+        f"bv*{cap}+ba",
+        f"b{cap}",
+        "best",
+    ))
+
+
 def build_cmd(tools, url, plan, output_dir, quality, downloader="aria2c",
               archive=False):
-    if str(quality).lower() == "best":
-        fmt = "ba+bv*/b/best"
-    else:
-        q = int(quality)
-        fmt = (f"ba+bv*[height<={q}]/"
-               f"b[height<={q}]/"
-               f"bv*[height<={q}]/best")
+    fmt = _format_chain(quality)
 
     out_tmpl = os.path.join(output_dir, "%(title).150B [%(id)s].%(ext)s")
 
     cmd = [
         tools["yt-dlp"],
         "-f", fmt,
-        "-S", "res,ext:mp4:m4a,codec:h264",
+        "-S", "res,ext:mp4:m4a,codec:h264:aac",
         "--merge-output-format", "mp4",
         "--ffmpeg-location", os.path.dirname(tools["ffmpeg"]),
         "-o", out_tmpl,

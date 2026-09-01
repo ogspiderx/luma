@@ -46,18 +46,24 @@ def notifications(app):
         return []
 
 
-def test_sound_is_fetched_first():
-    print("\n[sound is fetched before picture]")
+def test_picture_is_asked_for_first():
+    print("\n[picture is asked for before sound]")
     tools = {"yt-dlp": "yt-dlp", "aria2c": "aria2c",
              "ffmpeg": "/usr/bin/ffmpeg", "ffprobe": "/usr/bin/ffprobe"}
     plan = compute_plan(10, 20, 30, 1, 8)
     fmt = build_cmd(tools, "https://youtu.be/a", plan, "/tmp/o", "480")[2]
-    check("sound is named before picture in the request",
-          fmt.index("ba") < fmt.index("bv*"), fmt)
+    check("picture is named before sound in the request",
+          fmt.index("bv*") < fmt.index("+ba"), fmt)
     check("the height cap is still applied", "height<=480" in fmt, fmt)
 
     best = build_cmd(tools, "https://youtu.be/a", plan, "/tmp/o", "best")[2]
-    check("same at best quality", best.index("ba") < best.index("bv*"), best)
+    check("same at best quality", best.index("bv*") < best.index("+ba"), best)
+
+    check("ordinary players get H.264 and AAC asked for first",
+          fmt.startswith("bv*[vcodec^=avc1]") and "ba[acodec^=mp4a]" in fmt,
+          fmt)
+    check("but a video in nothing else still downloads",
+          fmt.endswith("/best"), fmt)
 
 
 def test_each_part_is_named():
@@ -480,7 +486,7 @@ async def run_all():
     print("=" * 62)
     await test_queue_positions_stay_correct()
     await test_positions_update_when_clearing()
-    test_sound_is_fetched_first()
+    test_picture_is_asked_for_first()
     test_each_part_is_named()
     await test_row_shows_which_part()
     await test_more_can_be_added_while_running()
